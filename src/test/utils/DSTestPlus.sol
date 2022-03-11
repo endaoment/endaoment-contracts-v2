@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Unlicensed
-pragma solidity 0.8.10;
+pragma solidity ^0.8.12;
 
 import { DSTestPlus as DSTestPlusSolmate } from "solmate/test/utils/DSTestPlus.sol";
-import "./Vm.sol";
+import "forge-std/Vm.sol";
 
 // Extends DSPlus with additional helper methods
 contract DSTestPlus is DSTestPlusSolmate {
