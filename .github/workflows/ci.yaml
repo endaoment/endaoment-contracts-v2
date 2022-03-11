@@ -1,49 +1,22 @@
+name: CI
 on:
-  # Trigger the workflow on push or pull request for the main branch
   push:
     branches:
       - main
   pull_request:
-    branches:
-      - main
-
-name: Tests
 
 jobs:
   tests:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout sources
-        uses: actions/checkout@v2
-
-      - name: Install toolchain
-        uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v2
         with:
-          profile: minimal
-          toolchain: stable
-          override: true
+          submodules: recursive
 
-      - uses: Swatinem/rust-cache@v1
+      - name: Install Foundry
+        uses: onbjerg/foundry-toolchain@v1
         with:
-          cache-on-failure: true
+          version: nightly
 
-      # Look for Forge in the cache (change the key to clear the cache)
-      - name: Cache Forge
-        id: cache-forge
-        uses: actions/cache@v2
-        with:
-          path: ~/.cargo/bin/forge
-          key: cache-forge-v0
-      
-      # If couldn't get it from cache, install it
-      - name: Install Forge
-        if: steps.cache-forge.outputs.cache-hit != 'true'
-        run: |
-          cargo install --git https://github.com/gakonst/foundry --bin forge --locked
-      
-      # Fetch dependencies and run tests
-      - name: Fetch dependencies
-        run: forge update
       - name: Run tests
-        run: PROPTEST_CASES=10000 forge test
+        run: FOUNDRY_PROFILE=ci forge test
