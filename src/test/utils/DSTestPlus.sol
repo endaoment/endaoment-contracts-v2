@@ -2,7 +2,8 @@
 pragma solidity ^0.8.12;
 
 import { DSTestPlus as DSTestPlusSolmate } from "solmate/test/utils/DSTestPlus.sol";
-import "forge-std/Vm.sol";
+import "forge-std/stdlib.sol";
+import {Vm} from "forge-std/Vm.sol";
 
 // Extends DSPlus with additional helper methods
 contract DSTestPlus is DSTestPlusSolmate {
