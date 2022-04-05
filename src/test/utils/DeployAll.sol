@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: Unlicensed
+// SPDX-License-Identifier: BSD 3-Claused
 pragma solidity ^0.8.12;
 
 import { MockERC20 } from "solmate/test/utils/mocks/MockERC20.sol";
-import "../../EntityFactory.sol";
+import "../../Registry.sol";
 import "../../lib/Math.sol";
 
 /**
@@ -13,9 +13,10 @@ contract DeployAll {
   address immutable self;
   uint256 constant MAX_UINT = type(uint256).max;
   address constant admin = address(0x1);
+  address constant treasury = address(0xface);
   address constant user1 = address(0xabc1);
 
-  EntityFactory entityFactory;
+  Registry globalTestRegistry;
   MockERC20 baseToken;
 
   constructor() {
@@ -25,6 +26,6 @@ contract DeployAll {
 
   function setUp() public virtual {
     baseToken = new MockERC20("USD Coin", "USDC", 6);
-    entityFactory = new EntityFactory(admin, baseToken);
+    globalTestRegistry = new Registry(admin, treasury, baseToken);
  }
 }

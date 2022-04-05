@@ -1,67 +1,63 @@
-//SPDX-License-Identifier: Unlicense
+//SPDX-License-Identifier: BSD 3-Clause
 pragma solidity ^0.8.12;
+import "solmate/tokens/ERC20.sol";
+import "solmate/utils/SafeTransferLib.sol";
 
-import { EntityFactory } from './EntityFactory.sol';
+import "./Registry.sol";
 
 /**
  * @notice Entity contract inherited by Org and Fund
  */
 abstract contract Entity {
+    using  SafeTransferLib for ERC20;
 
-    /// --- Storage ---
-    /// @notice Manager with privileged permission on Entity
+    Registry public immutable registry;
     address public manager;
+    ERC20 public immutable baseToken;
+    uint256 public balance;
 
-    /// @notice The Endaoment EntityFactory that deployed this Entity
-    EntityFactory public immutable entityFactory;
+    function entityType() public pure virtual returns (uint8);
 
-    /**
-     * @notice Flag to disable an entity
-     * @dev Should be checked on certain Entity operations
-     */ 
-    bool public disabled = false;
-
-    /// --- Constructor ---
-    constructor(address _manager) {
+    constructor(Registry _registry, address _manager) {
+        registry = _registry;
         manager = _manager;
-        entityFactory = EntityFactory(msg.sender);
+        baseToken = _registry.baseToken();
     }
 
-    /// --- Virtual fns ---
-    function isOrg() public virtual returns (bool);
-}
+    function donate(uint256 _amount) external {
+        require(registry.isActiveEntity(this));
 
-/**
- * @notice Org entity
- */
-contract Org is Entity {
-    
-    /// --- Storage ---
-    /// @notice Tax ID of org
-    bytes32 public orgId;
+        uint256 _fee = zocmul(_amount, registry.getDonationFee(msg.sender, this));
+        uint256 _netAmount = _amount - _fee; // overflow check prevents fee proportion > 0
 
-    /// --- Constructor ---
-    constructor(bytes32 _orgId) Entity(address(0)) {
-        orgId = _orgId;
+        baseToken.safeTransferFrom(msg.sender, registry.treasury(), _fee);
+        baseToken.safeTransferFrom(msg.sender, address(this), _netAmount);
+
+        balance += _netAmount;
     }
-    
-    /// --- Overrides ---
-    function isOrg() public pure override returns (bool) {
-        return true;
+
+    function transfer(Entity _to, uint256 _amount) external {
+        require(msg.sender == manager);
+        require(registry.isActiveEntity(this));
+        require(balance >= _amount);
+
+        uint256 _fee = zocmul(_amount, registry.getTransferFee(this, _to));
+        uint256 _netAmount = _amount - _fee;
+
+        baseToken.safeTransferFrom(msg.sender, registry.treasury(), _fee);
+        baseToken.safeTransfer(address(_to), _netAmount);
+
+        unchecked {
+            balance -= _amount;
+        }
     }
-}
 
+    // TODO: God mode for admin
 
-/**
- * @notice Fund entity
- */
-contract Fund is Entity {
-
-    /// --- Constructor ---
-    constructor(address _manager) Entity(_manager) {}
-
-    /// --- Overrides ---
-    function isOrg() public pure override returns (bool) {
-        return false;
+    function zocmul(uint256 x, uint256 y) internal pure returns (uint256 z) {
+        z = x * y;
+        unchecked {
+            z /= 1e4;
+        }
     }
 }

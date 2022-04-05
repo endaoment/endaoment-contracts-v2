@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: Unlicensed
+// SPDX-License-Identifier: BSD 3-Claused
 pragma solidity ^0.8.12;
 
 import "./DeployAll.sol";
@@ -13,5 +13,6 @@ contract DeployTest is DeployAll, DSTestPlus {
 
     vm.label(admin, "admin");
     vm.label(user1, "user1");
+    vm.label(treasury, "treasury");
   }
 }
