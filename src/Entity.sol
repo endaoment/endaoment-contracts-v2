@@ -5,6 +5,9 @@ import "solmate/utils/SafeTransferLib.sol";
 
 import "./Registry.sol";
 
+error EntityInactive();
+error InsufficientFunds();
+
 /**
  * @notice Entity contract inherited by Org and Fund
  */
@@ -25,7 +28,7 @@ abstract contract Entity {
     }
 
     function donate(uint256 _amount) external {
-        require(registry.isActiveEntity(this));
+        if (!registry.isActiveEntity(this)) revert EntityInactive();
 
         uint256 _fee = zocmul(_amount, registry.getDonationFee(this));
         uint256 _netAmount = _amount - _fee; // overflow check prevents fee proportion > 0
@@ -37,9 +40,9 @@ abstract contract Entity {
     }
 
     function transfer(Entity _to, uint256 _amount) external {
-        require(msg.sender == manager);
-        require(registry.isActiveEntity(this));
-        require(balance >= _amount);
+        if (msg.sender != manager) revert Unauthorized();
+        if (!registry.isActiveEntity(this)) revert EntityInactive();
+        if (balance < _amount) revert InsufficientFunds();
 
         uint256 _fee = zocmul(_amount, registry.getTransferFee(this, _to));
         uint256 _netAmount = _amount - _fee;
