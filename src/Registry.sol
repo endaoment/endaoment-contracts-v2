@@ -8,6 +8,9 @@ import "./Entity.sol";
 // --- Errors ---
 error Unauthorized();
 
+/**
+ * @notice Registry entity - manages Factory and Entity state info
+ */
 contract Registry {
 
     // --- Storage ---
@@ -30,8 +33,6 @@ contract Registry {
     mapping (uint8 => uint32) defaultDonationFee;
     /// @notice maps specific entity receiver to fee percentage stored as a zoc
     mapping (Entity => uint32) donationFeeReceiverOverride;
-    /// @notice maps specific donator to entity type to fee percentage stored as a zoc
-    mapping (address => mapping(uint8 => uint32)) donationFeeSenderOverride;
 
     /// @notice maps sender entity type to receiver entity type to fee percentage as a zoc
     mapping (uint8 => mapping(uint8 => uint32)) defaultTransferFee;
@@ -49,51 +50,18 @@ contract Registry {
 
     // --- Internal fns ---
 
+    /**
+     * @notice Indicates if the sender of a transaction has "admin" priviledges
+     */
     function isAdmin() private view returns (bool) {
         return msg.sender == admin;
     }
 
-    // --- External fns ---
-
-    function setFactoryApproval(address _factory, bool _isApproved) external {
-        if (!isAdmin()) revert Unauthorized();
-        isApprovedFactory[_factory] = _isApproved;
-    }
-
-    function setEntityStatus(Entity _entity, bool _isActive) external {
-        bool isFactoryDeploying = _isActive && isApprovedFactory[msg.sender];
-        if (!isFactoryDeploying && !isAdmin()) revert Unauthorized();
-        isActiveEntity[_entity] = _isActive;
-    }
-
-    function getDonationFee(address _sender, Entity _entity) external view returns (uint32) {
-        uint32 _default = _flipMaxAndZero(defaultDonationFee[_entity.entityType()]);
-        uint32 _senderOverride = _flipMaxAndZero(donationFeeSenderOverride[_sender][_entity.entityType()]);
-        uint32 _receiverOverride = _flipMaxAndZero(donationFeeReceiverOverride[_entity]);
-
-        // TODO: helper function lowest(a, b, c)
-        uint32 _lowestFee = _default;
-        _lowestFee = _senderOverride < _lowestFee ? _senderOverride : _lowestFee;
-        _lowestFee = _receiverOverride < _lowestFee ? _receiverOverride : _lowestFee;
-
-        return _lowestFee;
-    }
-
-    function getTransferFee(Entity _sender, Entity _receiver) external view returns (uint32) {
-        uint32 _default = _flipMaxAndZero(defaultTransferFee[_sender.entityType()][_receiver.entityType()]);
-        uint32 _senderOverride = _flipMaxAndZero(transferFeeSenderOverride[_sender][_receiver.entityType()]);
-        uint32 _receiverOverride = _flipMaxAndZero(transferFeeReceiverOverride[_sender.entityType()][_receiver]);
-
-        uint32 _lowestFee = _default;
-        _lowestFee = _senderOverride < _lowestFee ? _senderOverride : _lowestFee;
-        _lowestFee = _receiverOverride < _lowestFee ? _receiverOverride : _lowestFee;
-
-        return _lowestFee;
-    }
-
-    /// @dev uint32 max is a special number that represents a fee of 0, whereas the EVM's default of 0 means the fee value
-    /// @dev has simply not been set.  This method flips the two to enable this.
-    function _flipMaxAndZero(uint32 _value) internal pure returns (uint32) {
+    /**
+     * @notice Fee parsing to convert the special "uint32 max" value to zero, and zero to the "max"
+     * @dev After converting, "uint32 max" will cause overflow/revert when used as a fee percentage multiplier and zero will mean no fee
+     */
+    function _parseFee(uint32 _value) internal pure returns (uint32) {
         if (_value == 0) {
             return type(uint32).max;
         } else if (_value == type(uint32).max) {
@@ -101,6 +69,51 @@ contract Registry {
         } else {
             return _value;
         }
+    }
+
+    // --- External fns ---
+
+    /**
+     * @notice Sets the approval state a factory
+     */
+    function setFactoryApproval(address _factory, bool _isApproved) external {
+        if (!isAdmin()) revert Unauthorized();
+        isApprovedFactory[_factory] = _isApproved;
+    }
+
+    /**
+     * @notice Sets the enable/disable state of an Entity
+     */
+    function setEntityStatus(Entity _entity, bool _isActive) external {
+        bool isFactoryDeploying = _isActive && isApprovedFactory[msg.sender];
+        if (!isFactoryDeploying && !isAdmin()) revert Unauthorized();
+        isActiveEntity[_entity] = _isActive;
+    }
+
+    /**
+     * @notice Gets lowest possible donation fee pct (as a ZOC) for an Entity, among default and override
+     * @dev Makes use of _parseFee, so if no default or override exists, "max" will be returned
+     */
+    function getDonationFee(Entity _entity) external view returns (uint32) {
+        uint32 _default = _parseFee(defaultDonationFee[_entity.entityType()]);
+        uint32 _receiverOverride = _parseFee(donationFeeReceiverOverride[_entity]);
+        return _receiverOverride < _default ? _receiverOverride : _default;
+    }
+
+    /**
+     * @notice Gets lowest possible transfer fee pct (as a ZOC) between sender & receiver Entities, among default and overrides
+     * @dev Makes use of _parseFee, so if no default or overrides exist, "uint32 max" will be returned
+     */
+    function getTransferFee(Entity _sender, Entity _receiver) external view returns (uint32) {
+        uint32 _default = _parseFee(defaultTransferFee[_sender.entityType()][_receiver.entityType()]);
+        uint32 _senderOverride = _parseFee(transferFeeSenderOverride[_sender][_receiver.entityType()]);
+        uint32 _receiverOverride = _parseFee(transferFeeReceiverOverride[_sender.entityType()][_receiver]);
+
+        uint32 _lowestFee = _default;
+        _lowestFee = _senderOverride < _lowestFee ? _senderOverride : _lowestFee;
+        _lowestFee = _receiverOverride < _lowestFee ? _receiverOverride : _lowestFee;
+
+        return _lowestFee;
     }
 
     // TODO: Admin only setters for fee mappings

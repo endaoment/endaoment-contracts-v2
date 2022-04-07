@@ -27,7 +27,7 @@ abstract contract Entity {
     function donate(uint256 _amount) external {
         require(registry.isActiveEntity(this));
 
-        uint256 _fee = zocmul(_amount, registry.getDonationFee(msg.sender, this));
+        uint256 _fee = zocmul(_amount, registry.getDonationFee(this));
         uint256 _netAmount = _amount - _fee; // overflow check prevents fee proportion > 0
 
         baseToken.safeTransferFrom(msg.sender, registry.treasury(), _fee);
