@@ -5,6 +5,8 @@ import { DSTestPlus as DSTestPlusSolmate } from "solmate/test/utils/DSTestPlus.s
 import "forge-std/stdlib.sol";
 import {Vm} from "forge-std/Vm.sol";
 
+import { Registry } from "../../Registry.sol";
+
 // Extends DSPlus with additional helper methods
 contract DSTestPlus is DSTestPlusSolmate {
   // Cheatcodes live at a specific address; you can think of them as precompiles in a sense
@@ -14,4 +16,14 @@ contract DSTestPlus is DSTestPlusSolmate {
   function parseUnits(uint256 x, uint256 decimals) internal pure returns (uint256) {
     return x * 10 ** decimals;
   }
+
+  function assertEq(Registry a, Registry b) internal {
+    if (address(a) != address(b)) {
+      emit log("Error: a == b not satisfied [address]");
+      emit log_named_address("  Expected", address(b));
+      emit log_named_address("    Actual", address(a));
+      fail();
+    }
+  }
+
 }

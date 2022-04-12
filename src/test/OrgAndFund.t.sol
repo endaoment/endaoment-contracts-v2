@@ -10,8 +10,8 @@ contract OrgTest is DeployTest {
 }
 
 contract OrgConstructor is OrgTest {
-    function test_OrgConstructor(bytes32 _orgId, address _manager) public {
-        Org _org = new Org(_orgId, globalTestRegistry, _manager);
+    function testFuzz_OrgConstructor(bytes32 _orgId) public {
+        Org _org = new Org(globalTestRegistry, _orgId);
         assertEq(_org.entityType(), 1);
     }
 }
@@ -20,7 +20,7 @@ contract FundTest is DeployTest {
 }
 
 contract FundConstructor is FundTest {
-    function test_FundConstructor(address _manager) public {
+    function testFuzz_FundConstructor(address _manager) public {
         Fund _fund = new Fund(globalTestRegistry, _manager);
         assertEq(_fund.entityType(), 2);
     }
