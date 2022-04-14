@@ -12,7 +12,7 @@ import { Fund } from "./Fund.sol";
  */
 contract OrgFundFactory {
 
-    /// @notice The registry that the factory will operate upon
+    /// @notice The registry that the factory will operate upon.
     Registry public immutable registry;
 
     constructor(Registry _registry) {
@@ -20,9 +20,10 @@ contract OrgFundFactory {
     }
 
     /**
-     * @notice Deploys a Fund
-     * @param _manager The address of the manager of the Fund
-     * @param _salt A 32-byte value used to create the contract at a deterministic address
+     * @notice Deploys a Fund.
+     * @param _manager The address of the Fund's manager.
+     * @param _salt A 32-byte value used to create the contract at a deterministic address.
+     * @return _fund The deployed Fund.
      */
     function deployFund(address _manager, bytes32 _salt) public returns (Fund _fund) {
         // TODO: validations?
@@ -31,9 +32,10 @@ contract OrgFundFactory {
     }
 
     /**
-     * @notice Deploys an Org
-     * @param _orgId The Org's ID for tax purposes
-     * @param _salt A 32-byte value used to create the contract at a deterministic address
+     * @notice Deploys an Org.
+     * @param _orgId The Org's ID for tax purposes.
+     * @param _salt A 32-byte value used to create the contract at a deterministic address.
+     * @return _org The deployed Org.
      */
     function deployOrg(bytes32 _orgId, bytes32 _salt) public returns (Org _org) {
         _org = new Org {salt: _salt} (registry, _orgId);
@@ -41,10 +43,11 @@ contract OrgFundFactory {
     }
     
     /**
-     * @notice Calculates an Org contract's deployment address
-     * @param _orgId The Org's ID for tax purposes (needed to replicate constructor args for CREATE2)
-     * @param _salt A 32-byte value used to create the contract at a deterministic address
-     * @dev This function is used off-chain by the automated tests to verify proper contract address deployment
+     * @notice Calculates an Org contract's deployment address.
+     * @param _orgId The Org's ID for tax purposes (needed to replicate constructor args for CREATE2).
+     * @param _salt A 32-byte value used to create the contract at a deterministic address.
+     * @return The Org's deployment address.
+     * @dev This function is used off-chain by the automated tests to verify proper contract address deployment.
      */
     function computeOrgAddress(bytes32 _orgId, bytes32 _salt) external view returns (address) {
         bytes memory _constructorArgs = abi.encode(registry, _orgId);
@@ -53,10 +56,11 @@ contract OrgFundFactory {
     }
 
     /**
-     * @notice Calculates a Fund contract's deployment address
-     * @param _manager The address of the manager of the Fund (needed to replicate constructor args for CREATE2)
-     * @param _salt A 32-byte value used to create the contract at a deterministic address
-     * @dev This function is used off-chain by the automated tests to verify proper contract address deployment
+     * @notice Calculates a Fund contract's deployment address.
+     * @param _manager The address of the Fund's manager (needed to replicate constructor args for CREATE2).
+     * @param _salt A 32-byte value used to create the contract at a deterministic address.
+     * @return The Fund's deployment address.
+     * @dev This function is used off-chain by the automated tests to verify proper contract address deployment.
      */
     function computeFundAddress(address _manager, bytes32 _salt) external view returns (address) {
         bytes memory _constructorArgs = abi.encode(registry, _manager);
