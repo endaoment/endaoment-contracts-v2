@@ -5,6 +5,8 @@ import "solmate/utils/SafeTransferLib.sol";
 
 import "./Registry.sol";
 
+import { Math } from "./lib/Math.sol";
+
 error EntityInactive();
 error InsufficientFunds();
 
@@ -12,7 +14,8 @@ error InsufficientFunds();
  * @notice Entity contract inherited by Org and Fund
  */
 abstract contract Entity {
-    using  SafeTransferLib for ERC20;
+    using Math for uint256;
+    using SafeTransferLib for ERC20;
 
     Registry public immutable registry;
     address public manager;
@@ -30,7 +33,7 @@ abstract contract Entity {
     function donate(uint256 _amount) external {
         if (!registry.isActiveEntity(this)) revert EntityInactive();
 
-        uint256 _fee = zocmul(_amount, registry.getDonationFee(this));
+        uint256 _fee = _amount.zocmul(registry.getDonationFee(this));
         uint256 _netAmount = _amount - _fee; // overflow check prevents fee proportion > 0
 
         baseToken.safeTransferFrom(msg.sender, registry.treasury(), _fee);
@@ -44,7 +47,7 @@ abstract contract Entity {
         if (!registry.isActiveEntity(this)) revert EntityInactive();
         if (balance < _amount) revert InsufficientFunds();
 
-        uint256 _fee = zocmul(_amount, registry.getTransferFee(this, _to));
+        uint256 _fee = _amount.zocmul(registry.getTransferFee(this, _to));
         uint256 _netAmount = _amount - _fee;
 
         baseToken.safeTransferFrom(msg.sender, registry.treasury(), _fee);
@@ -56,11 +59,4 @@ abstract contract Entity {
     }
 
     // TODO: God mode for admin
-
-    function zocmul(uint256 x, uint256 y) internal pure returns (uint256 z) {
-        z = x * y;
-        unchecked {
-            z /= 1e4;
-        }
-    }
 }
