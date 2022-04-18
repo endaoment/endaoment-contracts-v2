@@ -41,6 +41,12 @@ contract Registry {
     /// @notice maps sender entity type to specific entity receiver to fee percentage as a zoc.
     mapping (uint8 => mapping(Entity => uint32)) transferFeeReceiverOverride;
 
+    /// @notice The event emitted when a factory is approved (whitelisted) or has it's approval removed
+    event FactoryApprovalSet(address indexed factory, bool isApproved);
+
+    /// @notice The event emitted when an entity is set active or inactive
+    event EntityStatusSet(address indexed entity, bool isActive);
+
     // --- Constructor ---
     constructor(address _admin, address _treasury, ERC20 _baseToken) {
         admin = _admin;
@@ -83,6 +89,7 @@ contract Registry {
     function setFactoryApproval(address _factory, bool _isApproved) external {
         if (!isAdmin()) revert Unauthorized();
         isApprovedFactory[_factory] = _isApproved;
+        emit FactoryApprovalSet(address(_factory), _isApproved);
     }
 
     /**
@@ -94,6 +101,7 @@ contract Registry {
         bool isFactoryDeploying = _isActive && isApprovedFactory[msg.sender];
         if (!isFactoryDeploying && !isAdmin()) revert Unauthorized();
         isActiveEntity[_entity] = _isActive;
+        emit EntityStatusSet(address(_entity), _isActive);
     }
 
     /**

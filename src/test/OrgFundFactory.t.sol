@@ -3,12 +3,16 @@ pragma solidity ^0.8.12;
 import "./utils/DeployTest.sol";
 import "../Registry.sol";
 
-import "../OrgFundFactory.sol";
-import "../Org.sol";
-import "../Fund.sol";
+import { OrgFundFactory } from "../OrgFundFactory.sol";
+import { Org } from "../Org.sol";
+import { Fund } from "../Fund.sol";
 
 contract OrgFundFactoryTest is DeployTest {
+
+    event EntityDeployed(address indexed entity, uint8 indexed entityType, address indexed entityManager);
+
     OrgFundFactory orgFundFactory;
+
     function setUp() public override {
         super.setUp();
         orgFundFactory = new OrgFundFactory(globalTestRegistry);
@@ -27,6 +31,8 @@ contract OrgFundFactoryConstructor is OrgFundFactoryTest {
 contract OrgFundFactoryDeployOrgTest is OrgFundFactoryTest {
     function testFuzz_DeployOrg(bytes32 _orgId, bytes32 _salt) public {
         address _expectedContractAddress = orgFundFactory.computeOrgAddress(_orgId, _salt);
+        vm.expectEmit(true, true, true, false);
+        emit EntityDeployed(_expectedContractAddress, 1, address(0));
         Org _org = orgFundFactory.deployOrg(_orgId, _salt);
         assertEq(_org.orgId(), _orgId);
         assertEq(globalTestRegistry, _org.registry());
@@ -61,6 +67,8 @@ contract OrgFundFactoryDeployOrgTest is OrgFundFactoryTest {
         vm.prank(admin);
         globalTestRegistry.setFactoryApproval(address(orgFundFactory2), true);
         address _expectedContractAddress = orgFundFactory2.computeOrgAddress(_orgId, _salt);
+        vm.expectEmit(true, true, true, false);
+        emit EntityDeployed(_expectedContractAddress, 1, address(0));
         Org _org = orgFundFactory2.deployOrg(_orgId, _salt);
         assertEq(_org.orgId(), _orgId);
         assertEq(globalTestRegistry, _org.registry());
@@ -72,6 +80,8 @@ contract OrgFundFactoryDeployOrgTest is OrgFundFactoryTest {
 contract OrgFundFactoryDeployFundTest is OrgFundFactoryTest {
     function testFuzz_DeployFund(address _manager, bytes32 _salt) public {
         address _expectedContractAddress = orgFundFactory.computeFundAddress(_manager, _salt);
+        vm.expectEmit(true, true, true, false);
+        emit EntityDeployed(_expectedContractAddress, 2, _manager);
         Fund _fund = orgFundFactory.deployFund(_manager, _salt);
         assertEq(globalTestRegistry, _fund.registry());
         assertEq(_fund.entityType(), 2);
@@ -105,6 +115,8 @@ contract OrgFundFactoryDeployFundTest is OrgFundFactoryTest {
         vm.prank(admin);
         globalTestRegistry.setFactoryApproval(address(orgFundFactory2), true);
         address _expectedContractAddress = orgFundFactory2.computeFundAddress(_manager, _salt);
+        vm.expectEmit(true, true, true, false);
+        emit EntityDeployed(_expectedContractAddress, 2, _manager);
         Fund _fund = orgFundFactory2.deployFund(_manager, _salt);
         assertEq(globalTestRegistry, _fund.registry());
         assertEq(_fund.entityType(), 2);

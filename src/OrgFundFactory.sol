@@ -4,20 +4,16 @@ pragma solidity ^0.8.12;
 import { Create2 } from "openzeppelin-contracts/contracts/utils/Create2.sol";
 
 import { Registry } from "./Registry.sol";
+import { EntityFactory } from "./EntityFactory.sol";
 import { Org } from "./Org.sol";
 import { Fund } from "./Fund.sol";
 
 /**
  * @notice This contract is the factory for both the Org and Fund objects.
  */
-contract OrgFundFactory {
+contract OrgFundFactory is EntityFactory {
 
-    /// @notice The registry that the factory will operate upon.
-    Registry public immutable registry;
-
-    constructor(Registry _registry) {
-        registry = _registry;
-    }
+    constructor(Registry _registry) EntityFactory(_registry) {}
 
     /**
      * @notice Deploys a Fund.
@@ -29,6 +25,7 @@ contract OrgFundFactory {
         // TODO: validations?
         _fund = new Fund {salt: _salt} (registry, _manager);
         registry.setEntityStatus(_fund, true);
+        emit EntityDeployed(address(_fund), _fund.entityType(), _manager);
     }
 
     /**
@@ -40,6 +37,7 @@ contract OrgFundFactory {
     function deployOrg(bytes32 _orgId, bytes32 _salt) public returns (Org _org) {
         _org = new Org {salt: _salt} (registry, _orgId);
         registry.setEntityStatus(_org, true);
+        emit EntityDeployed(address(_org), _org.entityType(), _org.manager());
     }
     
     /**
