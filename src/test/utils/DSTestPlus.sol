@@ -8,7 +8,7 @@ import {Vm} from "forge-std/Vm.sol";
 import { Registry } from "../../Registry.sol";
 
 // Extends DSPlus with additional helper methods
-contract DSTestPlus is DSTestPlusSolmate {
+contract DSTestPlus is DSTestPlusSolmate, stdCheats {
   // Cheatcodes live at a specific address; you can think of them as precompiles in a sense
   Vm vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
