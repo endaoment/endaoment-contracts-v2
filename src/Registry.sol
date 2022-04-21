@@ -1,7 +1,9 @@
 //SPDX-License-Identifier: BSD 3-Clause
 pragma solidity ^0.8.12;
-import "solmate/tokens/ERC20.sol";
-import "solmate/utils/SafeTransferLib.sol";
+
+import { ERC20 } from "solmate/tokens/ERC20.sol";
+import { Auth, Authority } from "./lib/auth/Auth.sol"; 
+import { RolesAuthority } from "./lib/auth/authorities/RolesAuthority.sol";
 
 import { Entity } from "./Entity.sol";
 
@@ -11,12 +13,9 @@ error Unauthorized();
 /**
  * @notice Registry entity - manages Factory and Entity state info.
  */
-contract Registry {
+contract Registry is RolesAuthority {
 
     // --- Storage ---
-
-    /// @notice Admin address can modify system vars.
-    address public admin;
 
     /// @notice Treasury address can receives fees.
     address public treasury;
@@ -46,22 +45,24 @@ contract Registry {
 
     /// @notice The event emitted when an entity is set active or inactive
     event EntityStatusSet(address indexed entity, bool isActive);
+    
+    /**
+     * @notice Modifier for methods that require auth and that the manager cannot access.
+     * @dev Overridden from Auth.sol. Reason: use custom error.
+     */
+    modifier requiresAuth override {
+        if(!isAuthorized(msg.sender, msg.sig)) revert Unauthorized();
+
+        _;
+    }
 
     // --- Constructor ---
-    constructor(address _admin, address _treasury, ERC20 _baseToken) {
-        admin = _admin;
+    constructor(address _admin, address _treasury, ERC20 _baseToken) RolesAuthority(_admin, Authority(address(this))) {
         treasury = _treasury;
         baseToken = _baseToken;
     }
 
     // --- Internal fns ---
-
-    /**
-     * @notice Indicates if the sender of a transaction has "admin" privileges.
-     */
-    function isAdmin() private view returns (bool) {
-        return msg.sender == admin;
-    }
 
     /**
      * @notice Fee parsing to convert the special "uint32 max" value to zero, and zero to the "max".
@@ -82,12 +83,11 @@ contract Registry {
     // --- External fns ---
 
     /**
-     * @notice Sets the approval state of a factory.
+     * @notice Sets the approval state of a factory. Grants the factory permissions to set entity status.
      * @param _factory The factory whose approval state is to be updated.
      * @param _isApproved True if the factory should be approved, false otherwise.
      */
-    function setFactoryApproval(address _factory, bool _isApproved) external {
-        if (!isAdmin()) revert Unauthorized();
+    function setFactoryApproval(address _factory, bool _isApproved) external requiresAuth {
         isApprovedFactory[_factory] = _isApproved;
         emit FactoryApprovalSet(address(_factory), _isApproved);
     }
@@ -97,11 +97,20 @@ contract Registry {
      * @param _entity The entity whose active state is to be updated.
      * @param _isActive True if the entity should be active, false otherwise.
      */
-    function setEntityStatus(Entity _entity, bool _isActive) external {
-        bool isFactoryDeploying = _isActive && isApprovedFactory[msg.sender];
-        if (!isFactoryDeploying && !isAdmin()) revert Unauthorized();
+    function setEntityStatus(Entity _entity, bool _isActive) external requiresAuth {
         isActiveEntity[_entity] = _isActive;
         emit EntityStatusSet(address(_entity), _isActive);
+    }
+
+    /**
+     * @notice Sets Entity as active. This is a special method to be called only by approved factories.
+     * Other callers should use `setEntityStatus` instead.
+     * @param _entity The entity.
+     */
+    function setEntityActive(Entity _entity) external {
+        if(!isApprovedFactory[msg.sender]) revert Unauthorized();
+        isActiveEntity[_entity] = true;
+        emit EntityStatusSet(address(_entity), true);
     }
 
     /**
@@ -137,4 +146,3 @@ contract Registry {
 
     // TODO: Admin only setters for fee mappings.
 }
-

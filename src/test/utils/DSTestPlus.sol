@@ -26,4 +26,13 @@ contract DSTestPlus is DSTestPlusSolmate {
     }
   }
 
+  function assertEq(bool a, bool b) internal {
+    if (a != b) {
+      emit log("Error: a == b not satisfied [bool]");
+      emit log_named_uint("  Expected", b ? uint256(1) : uint256(0));
+      emit log_named_uint("    Actual", a ? uint256(1) : uint256(0));
+      fail();
+    }
+  }
+
 }

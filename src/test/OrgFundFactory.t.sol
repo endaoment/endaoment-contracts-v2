@@ -8,17 +8,7 @@ import { Org } from "../Org.sol";
 import { Fund } from "../Fund.sol";
 
 contract OrgFundFactoryTest is DeployTest {
-
     event EntityDeployed(address indexed entity, uint8 indexed entityType, address indexed entityManager);
-
-    OrgFundFactory orgFundFactory;
-
-    function setUp() public override {
-        super.setUp();
-        orgFundFactory = new OrgFundFactory(globalTestRegistry);
-        vm.prank(admin);
-        globalTestRegistry.setFactoryApproval(address(orgFundFactory), true);
-    }
 }
 
 contract OrgFundFactoryConstructor is OrgFundFactoryTest {
@@ -56,7 +46,7 @@ contract OrgFundFactoryDeployOrgTest is OrgFundFactoryTest {
     function testFuzz_DeployOrgFailAfterUnwhitelisting(bytes32 _orgId, bytes32 _salt) public {
         vm.assume(_orgId != "1234");
         orgFundFactory.deployOrg(_orgId, _salt);
-        vm.prank(admin);
+        vm.prank(board);
         globalTestRegistry.setFactoryApproval(address(orgFundFactory), false);
         vm.expectRevert(abi.encodeWithSelector(Unauthorized.selector));
         orgFundFactory.deployOrg("1234", _salt);
@@ -64,7 +54,7 @@ contract OrgFundFactoryDeployOrgTest is OrgFundFactoryTest {
 
     function testFuzz_DeployOrgFromFactory2(bytes32 _orgId, bytes32 _salt) public {
         OrgFundFactory orgFundFactory2 = new OrgFundFactory(globalTestRegistry);
-        vm.prank(admin);
+        vm.prank(board);
         globalTestRegistry.setFactoryApproval(address(orgFundFactory2), true);
         address _expectedContractAddress = orgFundFactory2.computeOrgAddress(_orgId, _salt);
         vm.expectEmit(true, true, true, false);
@@ -104,7 +94,7 @@ contract OrgFundFactoryDeployFundTest is OrgFundFactoryTest {
     function testFuzz_DeployFundFailAfterUnwhitelisting(address _manager, bytes32 _salt) public {
         vm.assume(_manager != address(1234));
         orgFundFactory.deployFund(_manager, _salt);
-        vm.prank(admin);
+        vm.prank(board);
         globalTestRegistry.setFactoryApproval(address(orgFundFactory), false);
         vm.expectRevert(abi.encodeWithSelector(Unauthorized.selector));
         orgFundFactory.deployFund(address(1234), _salt);
@@ -112,7 +102,7 @@ contract OrgFundFactoryDeployFundTest is OrgFundFactoryTest {
 
     function testFuzz_DeployFundFromFactory2(address _manager, bytes32 _salt) public {
         OrgFundFactory orgFundFactory2 = new OrgFundFactory(globalTestRegistry);
-        vm.prank(admin);
+        vm.prank(board);
         globalTestRegistry.setFactoryApproval(address(orgFundFactory2), true);
         address _expectedContractAddress = orgFundFactory2.computeFundAddress(_manager, _salt);
         vm.expectEmit(true, true, true, false);
@@ -123,4 +113,3 @@ contract OrgFundFactoryDeployFundTest is OrgFundFactoryTest {
         assertEq(_expectedContractAddress, address(_fund));
     }
 }
-

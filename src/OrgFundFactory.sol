@@ -24,7 +24,7 @@ contract OrgFundFactory is EntityFactory {
     function deployFund(address _manager, bytes32 _salt) public returns (Fund _fund) {
         // TODO: validations?
         _fund = new Fund {salt: _salt} (registry, _manager);
-        registry.setEntityStatus(_fund, true);
+        registry.setEntityActive(_fund);
         emit EntityDeployed(address(_fund), _fund.entityType(), _manager);
     }
 
@@ -36,7 +36,7 @@ contract OrgFundFactory is EntityFactory {
      */
     function deployOrg(bytes32 _orgId, bytes32 _salt) public returns (Org _org) {
         _org = new Org {salt: _salt} (registry, _orgId);
-        registry.setEntityStatus(_org, true);
+        registry.setEntityActive(_org);
         emit EntityDeployed(address(_org), _org.entityType(), _org.manager());
     }
     

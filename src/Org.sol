@@ -21,6 +21,10 @@ contract Org is Entity {
         orgId = _orgId;
     }
 
+    function setOrgId(bytes32 _orgId) requiresAuth external {
+        orgId = _orgId;
+    }
+
     /**
      * @inheritdoc Entity
      */

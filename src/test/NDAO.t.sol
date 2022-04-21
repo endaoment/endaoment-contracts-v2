@@ -1,21 +1,20 @@
 // SPDX-License-Identifier: BSD 3-Claused
 pragma solidity ^0.8.12;
 
-import { DSTestPlus } from "./utils/DSTestPlus.sol";
+import { DeployTest } from "./utils/DeployTest.sol";
 import { NDAO } from "../NDAO.sol";
 
-contract NDAOTest is DSTestPlus {
+contract NDAOTest is DeployTest {
     NDAO ndao;
-    address admin = address(0xAD);
 
     error Unauthorized();
     bytes ErrorUnauthorized = abi.encodeWithSelector(Unauthorized.selector);
 
     event AdminUpdated(address indexed oldAdmin, address indexed newAdmin);
 
-    function setUp() public virtual {
-        vm.label(admin, 'admin');
-        ndao = new NDAO(admin);
+    function setUp() public override {
+        super.setUp();
+        ndao = new NDAO(board);
     }
 
     function expectEvent_AdminUpdate(address oldAdmin, address newAdmin) public {
@@ -30,7 +29,7 @@ contract Deployment is NDAOTest {
         assertEq(ndao.name(), "NDAO");
         assertEq(ndao.symbol(), "NDAO");
         assertEq(ndao.decimals(), 18);
-        assertEq(ndao.admin(), admin);
+        assertEq(ndao.admin(), board);
     }
 
     function testFuzz_EmitsAdminUpdatedEventOnDeployment(address _admin) public {
@@ -44,7 +43,7 @@ contract Minting is NDAOTest {
     function testFuzz_AllowsAdminToMint(address to, uint256 amount) public {
         uint256 initialBalance = ndao.balanceOf(to);
 
-        vm.prank(admin);
+        vm.prank(board);
         ndao.mint(to, amount);
 
         assertEq(ndao.balanceOf(to) - initialBalance, amount);
@@ -57,11 +56,11 @@ contract Minting is NDAOTest {
 
         uint256 initialBalance = ndao.balanceOf(to);
 
-        vm.prank(admin);
+        vm.prank(board);
         ndao.mint(to, amount1);
         assertEq(ndao.balanceOf(to) - initialBalance, amount1);
 
-        vm.prank(admin);
+        vm.prank(board);
         ndao.mint(to, amount2);
         assertEq(ndao.balanceOf(to) - initialBalance, amount1 + amount2);
     }
@@ -79,7 +78,7 @@ contract Minting is NDAOTest {
         uint256 to1InitialBalance = ndao.balanceOf(to1);
         uint256 to2InitialBalance = ndao.balanceOf(to2);
 
-        vm.startPrank(admin);
+        vm.startPrank(board);
         ndao.mint(to1, amount1);
         ndao.mint(to2, amount2);
         vm.stopPrank();
@@ -89,7 +88,7 @@ contract Minting is NDAOTest {
     }
 
     function testFuzz_DoesNotAllowNonAdminToMint(address notAdmin, address to, uint256 amount) public {
-        vm.assume(notAdmin != admin);
+        vm.assume(notAdmin != board);
 
         vm.prank(notAdmin);
         vm.expectRevert(ErrorUnauthorized);
@@ -99,7 +98,7 @@ contract Minting is NDAOTest {
     function testFuzz_MintsAfterAdminUpdated(address newAdmin, address to, uint256 amount) public {
         uint256 initialBalance = ndao.balanceOf(to);
 
-        vm.prank(admin);
+        vm.prank(board);
         ndao.updateAdmin(newAdmin);
 
         vm.prank(newAdmin);
@@ -112,20 +111,20 @@ contract Minting is NDAOTest {
 contract Admin is NDAOTest {
 
     function testFuzz_AdminCanTransferAdmin(address newAdmin) public {
-        vm.prank(admin);
+        vm.prank(board);
         ndao.updateAdmin(newAdmin);
 
         assertEq(ndao.admin(), newAdmin);
     }
 
     function testFuzz_EmitsAdminUpdatedEvent(address newAdmin) public {
-        vm.prank(admin);
-        expectEvent_AdminUpdate(admin, newAdmin);
+        vm.prank(board);
+        expectEvent_AdminUpdate(board, newAdmin);
         ndao.updateAdmin(newAdmin);
     }
 
     function testFuzz_NewAdminCanTransferAdmin(address newAdmin, address newNewAdmin) public {
-        vm.prank(admin);
+        vm.prank(board);
         ndao.updateAdmin(newAdmin);
         assertEq(ndao.admin(), newAdmin);
 
@@ -135,7 +134,7 @@ contract Admin is NDAOTest {
     }
 
     function testFuzz_NonAdminCannotUpdateAdmin(address notAdmin, address newAdmin) public {
-        vm.assume(notAdmin != admin);
+        vm.assume(notAdmin != board);
 
         vm.prank(notAdmin);
         vm.expectRevert(ErrorUnauthorized);
