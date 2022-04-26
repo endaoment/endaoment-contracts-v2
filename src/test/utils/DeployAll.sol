@@ -17,6 +17,7 @@ contract DeployAll {
   address constant treasury = address(0xface);
   address constant user1 = address(0xabc1);
   address constant capitalCommittee = address(0xccc);
+  address constant programCommittee = address(0xbbbb);
 
   /// @notice special address that is used to give permissions for entity operations
   address constant entityPerms = address(bytes20("entity"));

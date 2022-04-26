@@ -9,8 +9,17 @@ import "forge-std/console.sol";
  * @dev Adds additional config after deployment to facilitate testing
  */
 contract DeployTest is DeployAll, DSTestPlus {
+  // Entity Types
+  uint8 public constant OrgType = 1;
+  uint8 public constant FundType = 2;
+
   // Registry operations
   bytes4 public setEntityStatus = bytes4(keccak256("setEntityStatus(address,bool)"));
+  bytes4 public setDefaultDonationFee = bytes4(keccak256("setDefaultDonationFee(uint8,uint32)"));
+  bytes4 public setDonationFeeReceiverOverride = bytes4(keccak256("setDonationFeeReceiverOverride(address,uint32)"));
+  bytes4 public setDefaultTransferFee = bytes4(keccak256("setDefaultTransferFee(uint8,uint8,uint32)"));
+  bytes4 public setTransferFeeSenderOverride = bytes4(keccak256("setTransferFeeSenderOverride(address,uint8,uint32)"));
+  bytes4 public setTransferFeeReceiverOverride = bytes4(keccak256("setTransferFeeReceiverOverride(uint8,address,uint32)"));
 
   // Entity operations
   bytes4 public entityTransfer = bytes4(keccak256("transfer(address,uint256)"));
@@ -43,6 +52,17 @@ contract DeployTest is DeployAll, DSTestPlus {
     // role 7: P_07	Change entity's manager address
     globalTestRegistry.setRoleCapability(7, entityPerms, setManager, true);
     globalTestRegistry.setUserRole(capitalCommittee, 7, true);
+
+    // role 8: P_08 Change entity's fees
+    globalTestRegistry.setRoleCapability(8, address(globalTestRegistry), setDefaultDonationFee, true);
+    globalTestRegistry.setRoleCapability(8, address(globalTestRegistry), setDefaultTransferFee, true);
+    globalTestRegistry.setUserRole(programCommittee, 8, true);
+
+    // role 11: P_11 Change entity's outbound/inbound override fees
+    globalTestRegistry.setRoleCapability(11, address(globalTestRegistry), setDonationFeeReceiverOverride, true);
+    globalTestRegistry.setRoleCapability(11, address(globalTestRegistry), setTransferFeeSenderOverride, true);
+    globalTestRegistry.setRoleCapability(11, address(globalTestRegistry), setTransferFeeReceiverOverride, true);
+    globalTestRegistry.setUserRole(programCommittee, 11, true);
 
     vm.stopPrank();
   }
