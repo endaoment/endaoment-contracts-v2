@@ -1,6 +1,7 @@
 //SPDX-License-Identifier: BSD 3-Clause
 pragma solidity ^0.8.12;
 
+import { Math } from "./lib/Math.sol";
 import { ERC20 } from "solmate/tokens/ERC20.sol";
 import { Auth, Authority } from "./lib/auth/Auth.sol"; 
 import { RolesAuthority } from "./lib/auth/authorities/RolesAuthority.sol";
@@ -157,7 +158,6 @@ contract Registry is RolesAuthority {
         uint32 _lowestFee = _default;
         _lowestFee = _senderOverride < _lowestFee ? _senderOverride : _lowestFee;
         _lowestFee = _receiverOverride < _lowestFee ? _receiverOverride : _lowestFee;
-
         return _lowestFee;
     }
 

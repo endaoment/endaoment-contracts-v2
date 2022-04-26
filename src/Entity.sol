@@ -9,6 +9,7 @@ import { Math } from "./lib/Math.sol";
 
 error EntityInactive();
 error InsufficientFunds();
+error InvalidAction();
 
 /**
  * @notice Entity contract inherited by Org and Fund contracts (and all future kinds of Entities).
@@ -77,39 +78,58 @@ abstract contract Entity is Auth {
     /**
      * @notice Receives a donated amount of base tokens to be added to the entity's balance.
      * @param _amount Amount donated in base token.
-     * @dev This function will revert if the entity is inactive or if the token transfer fails.
+     * @dev Reverts if the donation fee percentage is larger than 100% (equal to 1e4 when represented as a zoc).
+     * @dev Reverts if the entity is inactive or if the token transfer fails.
      */
     function donate(uint256 _amount) external {
         if (!registry.isActiveEntity(this)) revert EntityInactive();
-
-        uint256 _fee = _amount.zocmul(registry.getDonationFee(this));
-        uint256 _netAmount = _amount - _fee; // overflow check prevents fee proportion > 0
+        uint256 _fee;
+        uint256 _netAmount;
+        uint256 _feeMultiplier = registry.getDonationFee(this);
+        if (_feeMultiplier > Math.ZOC) revert InvalidAction();
+        unchecked {
+            // unchecked as no possibility of overflow with baseToken precision
+            _fee = _amount.zocmul(_feeMultiplier);
+            // unchecked as the _feeMultiplier check with revert above protects against overflow
+            _netAmount = _amount - _fee;
+        }
 
         baseToken.safeTransferFrom(msg.sender, registry.treasury(), _fee);
         baseToken.safeTransferFrom(msg.sender, address(this), _netAmount);
 
-        balance += _netAmount;
+        unchecked {
+            // unchecked as no possibility of overflow with baseToken precision
+            balance += _netAmount;
+        }
     }
 
     /**
      * @notice Transfers an amount of base tokens from this entity to another entity.
      * @param _to The entity to receive the tokens.
      * @param _amount Contains the amount being donated (denominated in the base token's units).
-     * @dev This function will revert if the entity is inactive or if the token transfer fails.
-     * @dev This function will revert `Unauthorized` if the `msg.sender` is not the entity manager.
-     * @dev (TODO: Shouldn't revert "unauthorized" if msg.sender is admin/board, ie: "god mode").
+     * @dev Reverts if the entity is inactive or if the token transfer fails.
+     * @dev Reverts if the transfer fee percentage is larger than 100% (equal to 1e4 when represented as a zoc).
+     * @dev Reverts with `Unauthorized` if the `msg.sender` is not the entity manager or a privileged role.
      */
     function transfer(Entity _to, uint256 _amount) requiresManager external {
         if (!registry.isActiveEntity(this)) revert EntityInactive();
         if (balance < _amount) revert InsufficientFunds();
-
-        uint256 _fee = _amount.zocmul(registry.getTransferFee(this, _to));
-        uint256 _netAmount = _amount - _fee;
+        uint256 _fee;
+        uint256 _netAmount;
+        uint256 _feeMultiplier = registry.getTransferFee(this, _to);
+        if (_feeMultiplier > Math.ZOC) revert InvalidAction();
+        unchecked {
+            // unchecked as no possibility of underflow with baseToken precision
+            _fee = _amount.zocmul(_feeMultiplier);
+            // unchecked as the _feeMultiplier check with revert above protects against overflow
+            _netAmount = _amount - _fee;
+        }
 
         baseToken.safeTransferFrom(msg.sender, registry.treasury(), _fee);
         baseToken.safeTransfer(address(_to), _netAmount);
 
         unchecked {
+            // unchecked as no possibility of overflow with baseToken precision
             balance -= _amount;
         }
     }
