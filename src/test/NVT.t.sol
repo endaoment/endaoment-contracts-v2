@@ -45,6 +45,16 @@ contract NVTTest is NVTTypes, DSTestPlus {
         vm.prank(_holder);
         nvt.voteLock(_amount);
     }
+
+    function expectEvent_Locked(address _holder, uint256 _depositIndex, uint256 _amount) public {
+        vm.expectEmit(true, true, false, true);
+        emit Locked(_holder, _depositIndex, _amount);
+    }
+
+    function expectEvent_Unlocked(address _holder, uint256 _depositIndex, uint256 _amount) public {
+        vm.expectEmit(true, true, false, true);
+        emit Unlocked(_holder, _depositIndex, _amount);
+    }
 }
 
 // Deployment sanity checks.
@@ -72,6 +82,15 @@ contract VoteLock is NVTTest {
         assertEq(nvt.balanceOf(_holder), _amount);
     }
 
+    function testFuzz_EventEmittedOnVoteLock(address _holder, uint256 _amount) public {
+        _amount = bound(_amount, 0, type(uint224).max);
+        mintNdaoAndApproveNvt(_holder, _amount);
+
+        vm.prank(_holder);
+        expectEvent_Locked(_holder, 0, _amount);
+        nvt.voteLock(_amount);
+    }
+
     function testFuzz_NdaoHolderCanVoteLockNvtMultipleTimes(address _holder, uint256 _amount1, uint256 _amount2) public {
         _amount1 = bound(_amount1, 0, type(uint112).max);
         _amount2 = bound(_amount2, 0, type(uint112).max);
@@ -89,6 +108,22 @@ contract VoteLock is NVTTest {
 
         assertEq(ndao.balanceOf(_holder), 0);
         assertEq(nvt.balanceOf(_holder), _amount1 + _amount2);
+    }
+
+    function testFuzz_EventEmittedOnMultipleVoteLocks(address _holder, uint256 _amount1, uint256 _amount2) public {
+        _amount1 = bound(_amount1, 0, type(uint112).max);
+        _amount2 = bound(_amount2, 0, type(uint112).max);
+
+        mintNdaoAndApproveNvt(_holder, _amount1);
+        mintNdaoAndApproveNvt(_holder, _amount2);
+
+        vm.prank(_holder);
+        expectEvent_Locked(_holder, 0, _amount1);
+        nvt.voteLock(_amount1);
+
+        vm.prank(_holder);
+        expectEvent_Locked(_holder, 1, _amount2);
+        nvt.voteLock(_amount2);
     }
 
     function testFuzz_CannotVoteLockWithoutNdao(address _holder, uint256 _amount) public {
@@ -421,6 +456,23 @@ contract Unlock is NVTTest {
         assertEq(nvt.balanceOf(_holder), 0);
     }
 
+    function testFuzz_UnlockEmitsEvent(address _holder, uint256 _lockAmount, uint256 _unlockAmount) public {
+        _lockAmount = bound(_lockAmount, 0, type(uint224).max);
+        _unlockAmount = bound(_unlockAmount, 0, _lockAmount);
+        mintNdaoAndVoteLock(_holder, _lockAmount);
+
+        skip(365 days);
+
+        testRequests.push(UnlockRequest({
+            index: 0,
+            amount: _unlockAmount
+        }));
+
+        vm.prank(_holder);
+        expectEvent_Unlocked(_holder, 0, _unlockAmount);
+        nvt.unlock(testRequests);
+    }
+
     function testFuzz_UnlockOneQuarterAfterQuarter(address _holder, uint256 _amount) public {
         _amount = bound(_amount, 0, type(uint224).max);
         mintNdaoAndVoteLock(_holder, _amount);
@@ -540,6 +592,39 @@ contract Unlock is NVTTest {
 
         assertEq(ndao.balanceOf(_holder), _amount1Unlocked + _amount2Unlocked);
         assertEq(nvt.balanceOf(_holder), _amount1 + _amount2 - _amount1Unlocked - _amount2Unlocked);
+    }
+
+    function testFuzz_UnlockingMultipleDepositsEmitsMultipleEvents(
+        address _holder,
+        uint256 _lockAmount1,
+        uint256 _unlockAmount1,
+        uint256 _lockAmount2,
+        uint256 _unlockAmount2
+    ) public {
+        _lockAmount1 = bound(_lockAmount1, 0, type(uint112).max);
+        _unlockAmount1 = bound(_unlockAmount1, 0, _lockAmount1);
+        mintNdaoAndVoteLock(_holder, _lockAmount1);
+
+        _lockAmount2 = bound(_lockAmount2, 0, type(uint112).max);
+        _unlockAmount2 = bound(_unlockAmount2, 0, _lockAmount2);
+        mintNdaoAndVoteLock(_holder, _lockAmount2);
+
+        skip(365 days);
+
+        testRequests.push(UnlockRequest({
+            index: 0,
+            amount: _unlockAmount1
+        }));
+
+        testRequests.push(UnlockRequest({
+            index: 1,
+            amount: _unlockAmount2
+        }));
+
+        vm.prank(_holder);
+        expectEvent_Unlocked(_holder, 0, _unlockAmount1);
+        expectEvent_Unlocked(_holder, 1, _unlockAmount2);
+        nvt.unlock(testRequests);
     }
 
     function testFuzz_UnlockTwoDepositsOverTwoTimeSpans(address _holder, uint256 _amount1, uint256 _amount2) public {

@@ -35,6 +35,12 @@ abstract contract NVTTypes {
 
     /// @notice Thrown when an unlock request cannot be processed.
     error InvalidUnlockRequest();
+
+    /// @notice Emitted when a user vote locks NDAO for NVT.
+    event Locked(address indexed holder, uint256 indexed depositIndex, uint256 amount);
+
+    /// @notice Emitted when a user unlocks NVT for NDAO.
+    event Unlocked(address indexed holder, uint256 indexed depositIndex, uint256 amount);
 }
 
 /**
@@ -124,6 +130,11 @@ contract NVT is NVTTypes, ERC20Votes {
 
         _mint(msg.sender, _amount);
         ndao.transferFrom(msg.sender, address(this), _amount);
+
+        unchecked {
+            // Deposit length now guaranteed to be at least 1
+            emit Locked(msg.sender, deposits[msg.sender].length - 1, _amount);
+        }
     }
 
     /**
@@ -147,6 +158,8 @@ contract NVT is NVTTypes, ERC20Votes {
 
         _burn(msg.sender, _request.amount);
         ndao.transfer(msg.sender, _request.amount);
+
+        emit Unlocked(msg.sender, _request.index, _request.amount);
     }
 
     // --- Off-chain 'Lens' Methods ---
