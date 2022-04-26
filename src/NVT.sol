@@ -33,6 +33,9 @@ abstract contract NVTTypes {
         uint256 amount; // The amount of NDAO to be unlocked.
     }
 
+    /// @notice Thrown when a caller attempts a transfer related ERC20 method.
+    error TransferDisallowed();
+
     /// @notice Thrown when an unlock request cannot be processed.
     error InvalidUnlockRequest();
 
@@ -109,6 +112,43 @@ contract NVT is NVTTypes, ERC20Votes {
         }
 
         return _available;
+    }
+
+    // --- ERC-20 Overrides ---
+
+     /// @dev We override this because NVT is non-transferable. Always reverts with TransferDisallowed.
+    function transfer(address /* to */, uint256 /* amount */) public pure override returns (bool) {
+        revert TransferDisallowed();
+    }
+
+     /// @dev We override this because NVT is non-transferable. Always reverts with TransferDisallowed.
+    function transferFrom(
+        address /* from */,
+        address /* to */,
+        uint256 /* amount */
+    ) public pure override returns (bool) {
+        revert TransferDisallowed();
+    }
+
+     /// @dev We override this to prevent users wasting gas. Always reverts with TransferDisallowed.
+    function approve(address /* spender */, uint256 /* amount */) public pure override returns (bool) {
+        revert TransferDisallowed();
+    }
+
+    /// @dev We override this to prevent users wasting gas. Always reverts with TransferDisallowed.
+    function increaseAllowance(
+        address /* spender */,
+        uint256 /* addedValue */
+    ) public pure override returns (bool) {
+        revert TransferDisallowed();
+    }
+
+    /// @dev We override this to prevent users wasting gas. Always reverts with TransferDisallowed.
+    function decreaseAllowance(
+        address /* spender */,
+        uint256 /* subtractedValue */
+    ) public pure override returns (bool) {
+        revert TransferDisallowed();
     }
 
     // --- External Methods ---

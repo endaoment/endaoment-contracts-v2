@@ -11,6 +11,7 @@ contract NVTTest is NVTTypes, DSTestPlus {
     NDAO ndao;
     address admin = address(0xAD);
 
+    bytes ErrorTransferDisallowed = abi.encodeWithSelector(TransferDisallowed.selector);
     bytes ErrorInvalidUnlockRequest = abi.encodeWithSelector(InvalidUnlockRequest.selector);
 
     // In the Solmate ERC20 implementation, attempting to transfer tokens you don't have reverts w/ an overflow panic
@@ -68,11 +69,90 @@ contract Deployment is NVTTest {
     }
 }
 
+// Testing that NVT tokens cannot be transferred.
+contract NonTransferable is NVTTest {
+
+    function testFuzz_CannotTransfer(
+        address _holder,
+        address _receiver,
+        uint256 _holdAmount,
+        uint256 _transferAmount
+    ) public {
+        vm.assume(
+            _holder != address(0) &&
+            _receiver != address(0)
+        );
+        _holdAmount = bound(_holdAmount, 0, type(uint224).max); // Enforced via ERC20Votes._maxSupply()
+        _transferAmount = bound(_transferAmount, 0, _holdAmount);
+
+        mintNdaoAndVoteLock(_holder, _holdAmount);
+
+        vm.expectRevert(ErrorTransferDisallowed);
+        vm.prank(_holder);
+        nvt.transfer(_receiver, _transferAmount);
+    }
+
+    function testFuzz_CannotApprove(address _holder, address _spender, uint256 _approveAmount) public {
+        vm.assume(
+            _holder != address(0) &&
+            _spender != address(0)
+        );
+
+        vm.expectRevert(ErrorTransferDisallowed);
+        vm.prank(_holder);
+        nvt.approve(_spender, _approveAmount);
+    }
+
+    function testFuzz_CannotIncreaseAllowance(address _holder, address _spender, uint256 _increaseAmount) public {
+        vm.assume(
+            _holder != address(0) &&
+            _spender != address(0)
+        );
+
+        vm.expectRevert(ErrorTransferDisallowed);
+        vm.prank(_holder);
+        nvt.increaseAllowance(_spender, _increaseAmount);
+    }
+
+    function testFuzz_CannotDecreaseAllowance(address _holder, address _spender, uint256 _decreaseAmount) public {
+        vm.assume(
+            _holder != address(0) &&
+            _spender != address(0)
+        );
+
+        vm.expectRevert(ErrorTransferDisallowed);
+        vm.prank(_holder);
+        nvt.increaseAllowance(_spender, _decreaseAmount);
+    }
+
+    function testFuzz_CannotTransferFrom(
+        address _holder,
+        address _spender,
+        address _receiver,
+        uint256 _holdAmount,
+        uint256 _transferAmount
+    ) public {
+        vm.assume(
+            _holder != address(0) &&
+            _receiver != address(0) &&
+            _spender != address(0)
+        );
+        _holdAmount = bound(_holdAmount, 0, type(uint224).max);
+        _transferAmount = bound(_transferAmount, 0, _holdAmount);
+
+        mintNdaoAndVoteLock(_holder, _holdAmount);
+
+        vm.expectRevert(ErrorTransferDisallowed);
+        vm.prank(_spender);
+        nvt.transferFrom(_holder, _receiver, _transferAmount);
+    }
+}
+
 // Testing the ability to lock NDAO for NVT.
 contract VoteLock is NVTTest {
 
     function testFuzz_NdaoHolderCanVoteLockNvt(address _holder, uint256 _amount) public {
-        _amount = bound(_amount, 0, type(uint224).max); // Enforced via ERC20Votes._maxSupply()
+        _amount = bound(_amount, 0, type(uint224).max);
         mintNdaoAndApproveNvt(_holder, _amount);
 
         vm.prank(_holder);
