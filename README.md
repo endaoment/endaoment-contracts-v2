@@ -5,12 +5,13 @@
 This repo is built using [Foundry](https://github.com/gakonst/foundry)
 
 1. [Install Foundry](https://github.com/gakonst/foundry#installation)
-1. Install dependencies with `forge install`
+1. Install dependencies with `make install`
 
 ## Development
 
-- Build contracts with `forge build`
-- Run tests with `forge test`
+- Copy the **.env.template file** to **.env** and replace the `RPC_URL` with your own endpoint.
+- Build contracts with `make build`.
+- Run tests with `make test`.
 
 ### Testing
 

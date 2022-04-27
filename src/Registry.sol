@@ -5,11 +5,14 @@ import { Math } from "./lib/Math.sol";
 import { ERC20 } from "solmate/tokens/ERC20.sol";
 import { Auth, Authority } from "./lib/auth/Auth.sol"; 
 import { RolesAuthority } from "./lib/auth/authorities/RolesAuthority.sol";
+import { SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
 
 import { Entity } from "./Entity.sol";
+import { ISwapWrapper } from "./interfaces/ISwapWrapper.sol";
 
 // --- Errors ---
 error Unauthorized();
+error UnsupportedSwapper();
 
 /**
  * @notice Registry entity - manages Factory and Entity state info.
@@ -40,6 +43,8 @@ contract Registry is RolesAuthority {
     mapping (Entity => mapping(uint8 => uint32)) transferFeeSenderOverride;
     /// @notice maps sender entity type to specific entity receiver to fee percentage as a zoc.
     mapping (uint8 => mapping(Entity => uint32)) transferFeeReceiverOverride;
+    /// @notice mapping of supported swap wrappers.
+    mapping (ISwapWrapper => bool) public isSwapperSupported;
 
     // --- Events ---
 
@@ -48,6 +53,9 @@ contract Registry is RolesAuthority {
 
     /// @notice The event emitted when an entity is set active or inactive.
     event EntityStatusSet(address indexed entity, bool isActive);
+
+    /// @notice The event emitted when a swap wrapper is set active or inactive.
+    event SwapWrapperStatusSet(address indexed swapWrapper, bool isSupported);
     
     /// @notice Emitted when a default donation fee is set for an entity type.
     event DefaultDonationFeeSet(uint8 indexed entityType, uint32 fee);
@@ -212,5 +220,31 @@ contract Registry is RolesAuthority {
     function setTransferFeeReceiverOverride(uint8 _fromEntityType, Entity _toEntity, uint32 _fee) external requiresAuth {
         transferFeeReceiverOverride[_fromEntityType][_toEntity] = _parseFeeWithFlip(_fee);
         emit TransferFeeReceiverOverrideSet(_fromEntityType, address(_toEntity), _fee);
+    }
+
+    /**
+     * @notice Sets the enable/disable state of a SwapWrapper. System owners must ensure meticulous review of SwapWrappers before approving them.
+     * @param _swapWrapper A contract that implements ISwapWrapper.
+     * @param _supported `true` if supported, `false` if unsupported.
+     */
+    function setSwapWrapperStatus(ISwapWrapper _swapWrapper, bool _supported) external requiresAuth {
+        isSwapperSupported[_swapWrapper] = _supported;
+        emit SwapWrapperStatusSet(address(_swapWrapper), _supported);
+    }
+
+    /**
+     * @notice Swap function that must be used across the protocol.
+     * @param _tokenIn Token to be swapped (or 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE for ETH).
+     * @param _tokenOut Token to receive (or 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE for ETH).
+     * @param _sender Sender of `_tokenIn`.
+     * @param _recipient Reciever of `_tokenOut`.
+     * @param _amount Amount of `_tokenIn` that should be swapped.
+     * @param _swapWrapper The approved swap wrapper that should be used to execute the swap.
+     * @param _data Additional data that the swap wrapper may require to execute the swap.
+     * @return Amount of _tokenOut received.
+     */
+    function swap(address _tokenIn, address _tokenOut, address _sender, address _recipient, uint256 _amount, ISwapWrapper _swapWrapper, bytes calldata _data) external returns (uint256) {
+        if(!isSwapperSupported[_swapWrapper]) revert UnsupportedSwapper();
+        return ISwapWrapper(_swapWrapper).swap(_tokenIn, _tokenOut, _sender, _recipient, _amount, _data);
     }
 }

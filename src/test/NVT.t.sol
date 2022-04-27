@@ -257,6 +257,7 @@ contract Deposits is NVTTest {
     function testFuzz_MultipleDepositsOverTimeSpan(address _holder, uint256 _amount1, uint256 _amount2, uint256 _time) public {
         _amount1 = bound(_amount1, 0, type(uint112).max);
         _amount2 = bound(_amount2, 0, type(uint112).max);
+        _time = bound(_time, 0, 1000 * (365 days));
 
         mintNdaoAndVoteLock(_holder, _amount1);
 
@@ -505,7 +506,7 @@ contract WithdrawalAvailable is NVTTest {
 
     function testFuzz_OneDepositAfterArbitraryTimeOver1Year(address _holder, uint256 _amount, uint256 _time) public {
         _amount = bound(_amount, 0, type(uint224).max);
-        _time = bound(_time, 365 days, type(uint256).max);
+        _time = bound(_time, 365 days, 1000 * (365 days));
 
         mintNdaoAndVoteLock(_holder, _amount);
         uint256 timestamp = block.timestamp + _time;

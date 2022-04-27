@@ -12,7 +12,7 @@ optimizer = true
 optimizer-runs = 9999999
 
 [ci]
-fuzz-runs = 50000
+fuzz-runs = 500
 
 # Verbosity levels (https://onbjerg.github.io/foundry-book/forge/tests.html#logs-and-traces)
 #   Level 2 (-vv): Logs emitted during tests are also displayed.

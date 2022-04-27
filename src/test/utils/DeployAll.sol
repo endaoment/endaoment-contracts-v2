@@ -16,6 +16,7 @@ contract DeployAll {
   address constant board = address(0x1);
   address constant treasury = address(0xface);
   address constant user1 = address(0xabc1);
+  address constant user2 = address(0xabc2);
   address constant capitalCommittee = address(0xccc);
   address constant programCommittee = address(0xbbbb);
 

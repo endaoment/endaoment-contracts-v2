@@ -6,6 +6,7 @@ import { OrgFundFactory } from "../OrgFundFactory.sol";
 import { Org } from "../Org.sol";
 import { Fund } from "../Fund.sol";
 import { Entity } from "../Entity.sol";
+import { ISwapWrapper } from "../interfaces/ISwapWrapper.sol";
 
 contract RegistryTest is DeployTest {
     event FactoryApprovalSet(address indexed factory, bool isApproved);
@@ -15,6 +16,7 @@ contract RegistryTest is DeployTest {
     event DefaultTransferFeeSet(uint8 indexed fromEntitytype, uint8 indexed toEntityType, uint32 fee);
     event TransferFeeSenderOverrideSet(address indexed fromEntity, uint8 indexed toEntityType, uint32 fee);
     event TransferFeeReceiverOverrideSet(uint8 indexed fromEntityType, address indexed toEntity, uint32 fee);
+    event SwapWrapperStatusSet(address indexed swapWrapper, bool isActive);
 }
 
 contract RegistryConstructor is RegistryTest {
@@ -84,6 +86,16 @@ contract RegistrySetEntityStatus is RegistryTest {
         vm.prank(user1);
         vm.expectRevert(Unauthorized.selector);
         globalTestRegistry.setEntityStatus(_entity, _status);
+    }
+}
+
+contract RegistrySetSwapWrapperStatus is RegistryTest {
+    function testFuzz_SetSwapWrapperStatus(ISwapWrapper _swapWrapper, bool _status) public {
+        vm.expectEmit(true, true, false, false);
+        emit SwapWrapperStatusSet(address(_swapWrapper), _status);
+        vm.prank(board);
+        globalTestRegistry.setSwapWrapperStatus(_swapWrapper, _status);
+        assertEq(globalTestRegistry.isSwapperSupported(_swapWrapper), _status);
     }
 }
 

@@ -3,7 +3,8 @@ pragma solidity ^0.8.12;
 
 import "./DeployAll.sol";
 import "./DSTestPlus.sol";
-import "forge-std/console.sol";
+import { ISwapWrapper } from "../../interfaces/ISwapWrapper.sol";
+import { UniV3Wrapper } from "../../swapWrappers/UniV3Wrapper.sol";
 
 /**
  * @dev Adds additional config after deployment to facilitate testing
@@ -26,15 +27,24 @@ contract DeployTest is DeployAll, DSTestPlus {
   bytes4 public setOrgId = bytes4(keccak256("setOrgId(bytes32)"));
   bytes4 public setManager = bytes4(keccak256("setManager(address)"));
 
+  // Uni v3 swap wrapper
+  address public uniV3SwapRouter = 0xE592427A0AEce92De3Edee1F18E0157C05861564;
+  ISwapWrapper uniV3SwapWrapper;
+
   function setUp() public virtual override {
     super.setUp();
 
     vm.label(board, "board");
     vm.label(user1, "user1");
+    vm.label(user2, "user1");
     vm.label(treasury, "treasury");
     vm.label(capitalCommittee, "capital committee");
+    vm.label(uniV3SwapRouter, "uniV3 swap router");
 
     vm.startPrank(board);
+
+    uniV3SwapWrapper = new UniV3Wrapper("UniV3 SwapRouter", uniV3SwapRouter);
+    globalTestRegistry.setSwapWrapperStatus(ISwapWrapper(uniV3SwapWrapper), true);
     globalTestRegistry.setFactoryApproval(address(orgFundFactory), true);
     
     // role 2: P_02	Transfer balances between entitys
@@ -64,6 +74,9 @@ contract DeployTest is DeployAll, DSTestPlus {
     globalTestRegistry.setRoleCapability(11, address(globalTestRegistry), setTransferFeeReceiverOverride, true);
     globalTestRegistry.setUserRole(programCommittee, 11, true);
 
+    uniV3SwapWrapper = new UniV3Wrapper("UniV3 SwapRouter", uniV3SwapRouter);
+    globalTestRegistry.setSwapWrapperStatus(ISwapWrapper(uniV3SwapWrapper), true);
+    
     vm.stopPrank();
   }
 }

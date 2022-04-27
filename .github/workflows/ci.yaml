@@ -19,4 +19,6 @@ jobs:
           version: nightly
 
       - name: Run tests
-        run: FOUNDRY_PROFILE=ci forge test
+        run: FOUNDRY_PROFILE=ci make test
+        env:
+          RPC_URL: ${{ secrets.RPC_URL }}
