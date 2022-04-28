@@ -43,12 +43,10 @@ contract DeployTest is DeployAll, DSTestPlus {
 
     vm.startPrank(board);
 
-    uniV3SwapWrapper = new UniV3Wrapper("UniV3 SwapRouter", uniV3SwapRouter);
-    globalTestRegistry.setSwapWrapperStatus(ISwapWrapper(uniV3SwapWrapper), true);
     globalTestRegistry.setFactoryApproval(address(orgFundFactory), true);
-    
+
     // role 2: P_02	Transfer balances between entitys
-    globalTestRegistry.setRoleCapability(2, entityPerms, entityTransfer, true); 
+    globalTestRegistry.setRoleCapability(2, entityPerms, entityTransfer, true);
     globalTestRegistry.setUserRole(capitalCommittee, 2, true);
 
     // role 5: P_05	Enable/disable entities
@@ -58,7 +56,7 @@ contract DeployTest is DeployAll, DSTestPlus {
     // role 6: P_06	Change an org's TaxID
     globalTestRegistry.setRoleCapability(6, entityPerms, setOrgId, true);
     globalTestRegistry.setUserRole(capitalCommittee, 6, true);
-    
+
     // role 7: P_07	Change entity's manager address
     globalTestRegistry.setRoleCapability(7, entityPerms, setManager, true);
     globalTestRegistry.setUserRole(capitalCommittee, 7, true);
@@ -74,9 +72,6 @@ contract DeployTest is DeployAll, DSTestPlus {
     globalTestRegistry.setRoleCapability(11, address(globalTestRegistry), setTransferFeeReceiverOverride, true);
     globalTestRegistry.setUserRole(programCommittee, 11, true);
 
-    uniV3SwapWrapper = new UniV3Wrapper("UniV3 SwapRouter", uniV3SwapRouter);
-    globalTestRegistry.setSwapWrapperStatus(ISwapWrapper(uniV3SwapWrapper), true);
-    
     vm.stopPrank();
   }
 }

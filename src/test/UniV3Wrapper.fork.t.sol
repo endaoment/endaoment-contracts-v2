@@ -5,6 +5,7 @@ import "../Registry.sol";
 import { ERC20 } from "solmate/tokens/ERC20.sol";
 import { SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
 import { console2 } from "forge-std/console2.sol";
+
 abstract contract UniV3WrapperTest is DeployTest {
     using SafeTransferLib for ERC20;
     address tokenA;
@@ -26,6 +27,15 @@ abstract contract UniV3WrapperTest is DeployTest {
     address receiver = user2;
 
     event WrapperSwapExecuted(address indexed tokenIn, address indexed tokenOut, address sender, address indexed recipient, uint256 amountIn, uint256 amountOut);
+
+    function setUp() public virtual override {
+      super.setUp();
+
+      vm.startPrank(board);
+      uniV3SwapWrapper = new UniV3Wrapper("UniV3 SwapRouter", uniV3SwapRouter);
+      globalTestRegistry.setSwapWrapperStatus(ISwapWrapper(uniV3SwapWrapper), true);
+      vm.stopPrank();
+    }
 
     function test_swap_AB() public {
         uint256 _amount = 1e22;

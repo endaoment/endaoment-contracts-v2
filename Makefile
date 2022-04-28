@@ -9,4 +9,4 @@ build:
 	forge build
 
 test:
-	forge test --fork-url "${RPC_URL}" --fork-block-number 14500000
+	forge test --no-match-path "*.fork.t.sol" && forge test --fork-url "${RPC_URL}" --fork-block-number 14500000 --match-path "*.fork.t.sol"
