@@ -11,11 +11,13 @@ contract NVTTest is NVTTypes, DSTestPlus {
     NDAO ndao;
     address admin = address(0xAD);
 
-    bytes ErrorTransferDisallowed = abi.encodeWithSelector(TransferDisallowed.selector);
-    bytes ErrorInvalidUnlockRequest = abi.encodeWithSelector(InvalidUnlockRequest.selector);
-
     // In the Solmate ERC20 implementation, attempting to transfer tokens you don't have reverts w/ an overflow panic
     bytes ErrorNoNdaoTokensError = abi.encodeWithSignature("Panic(uint256)", 0x11);
+
+    // Choose a value well above anything reasonable for bounding fuzzed vesting periods.
+    uint256 MAX_VESTING_PERIOD = 1000 * (365 days);
+    // The period * amount must fit into a uint256 to avoid fuzzing overflows. In reality this would never happen.
+    uint256 MAX_VESTING_AMOUNT = type(uint256).max / MAX_VESTING_PERIOD;
 
     function setUp() public virtual {
         vm.label(admin, "admin");
@@ -47,6 +49,18 @@ contract NVTTest is NVTTypes, DSTestPlus {
         nvt.voteLock(_amount);
     }
 
+    function mintNdaoAndVest(address _vestee, uint256 _amount, uint256 _period) public {
+        vm.assume(
+            _vestee != admin &&
+            _vestee != address(0) &&
+            _vestee != address(nvt)
+        );
+        mintNdaoAndApproveNvt(admin, _amount);
+
+        vm.prank(admin);
+        nvt.vestLock(_vestee, _amount, _period);
+    }
+
     function expectEvent_Locked(address _holder, uint256 _depositIndex, uint256 _amount) public {
         vm.expectEmit(true, true, false, true);
         emit Locked(_holder, _depositIndex, _amount);
@@ -55,6 +69,21 @@ contract NVTTest is NVTTypes, DSTestPlus {
     function expectEvent_Unlocked(address _holder, uint256 _depositIndex, uint256 _amount) public {
         vm.expectEmit(true, true, false, true);
         emit Unlocked(_holder, _depositIndex, _amount);
+    }
+
+    function expectEvent_VestLocked(address _vestee, uint256 _amount, uint256 _period) public {
+        vm.expectEmit(true, false, false, true);
+        emit VestLocked(_vestee, _amount, _period);
+    }
+
+    function expectEvent_VestUnlocked(address _vestee, uint256 _amount) public {
+        vm.expectEmit(true, false, false, true);
+        emit VestUnlocked(_vestee, _amount);
+    }
+
+    function expectEvent_ClawedBack(address _vestee, uint256 _amount) public {
+        vm.expectEmit(true, false, false, true);
+        emit ClawedBack(_vestee, _amount);
     }
 }
 
@@ -87,7 +116,7 @@ contract NonTransferable is NVTTest {
 
         mintNdaoAndVoteLock(_holder, _holdAmount);
 
-        vm.expectRevert(ErrorTransferDisallowed);
+        vm.expectRevert(TransferDisallowed.selector);
         vm.prank(_holder);
         nvt.transfer(_receiver, _transferAmount);
     }
@@ -98,7 +127,7 @@ contract NonTransferable is NVTTest {
             _spender != address(0)
         );
 
-        vm.expectRevert(ErrorTransferDisallowed);
+        vm.expectRevert(TransferDisallowed.selector);
         vm.prank(_holder);
         nvt.approve(_spender, _approveAmount);
     }
@@ -109,7 +138,7 @@ contract NonTransferable is NVTTest {
             _spender != address(0)
         );
 
-        vm.expectRevert(ErrorTransferDisallowed);
+        vm.expectRevert(TransferDisallowed.selector);
         vm.prank(_holder);
         nvt.increaseAllowance(_spender, _increaseAmount);
     }
@@ -120,7 +149,7 @@ contract NonTransferable is NVTTest {
             _spender != address(0)
         );
 
-        vm.expectRevert(ErrorTransferDisallowed);
+        vm.expectRevert(TransferDisallowed.selector);
         vm.prank(_holder);
         nvt.increaseAllowance(_spender, _decreaseAmount);
     }
@@ -142,7 +171,7 @@ contract NonTransferable is NVTTest {
 
         mintNdaoAndVoteLock(_holder, _holdAmount);
 
-        vm.expectRevert(ErrorTransferDisallowed);
+        vm.expectRevert(TransferDisallowed.selector);
         vm.prank(_spender);
         nvt.transferFrom(_holder, _receiver, _transferAmount);
     }
@@ -772,7 +801,7 @@ contract Unlock is NVTTest {
         );
 
         vm.prank(_holder);
-        vm.expectRevert(ErrorInvalidUnlockRequest);
+        vm.expectRevert(InvalidUnlockRequest.selector);
         nvt.unlock(testRequests);
     }
 
@@ -799,7 +828,7 @@ contract Unlock is NVTTest {
         );
 
         vm.prank(_holder);
-        vm.expectRevert(ErrorInvalidUnlockRequest);
+        vm.expectRevert(InvalidUnlockRequest.selector);
         nvt.unlock(testRequests);
     }
 
@@ -847,7 +876,7 @@ contract Unlock is NVTTest {
         }));
 
         vm.prank(_holder);
-        vm.expectRevert(ErrorInvalidUnlockRequest);
+        vm.expectRevert(InvalidUnlockRequest.selector);
         nvt.unlock(testRequests);
     }
 }
@@ -1014,5 +1043,438 @@ contract OffChainHelpers is NVTTest {
         assertEq(activeIndices[0], 0);
         assertEq(activeIndices[1], 1);
         assertEq(_amountAvailable, _amount1 + _amount2 - (_amount2 / 3));
+    }
+}
+
+// Testing the Admin ability to lock NDAO and create vesting NVT distributions.
+contract VestLock is NVTTest {
+
+    function testFuzz_AdminCanVestLock(address _vestee, uint256 _amount, uint256 _period) public {
+        vm.assume(
+            _vestee != admin &&
+            _vestee != address(0)
+        );
+        _amount = bound(_amount, 0, MAX_VESTING_AMOUNT);
+        _period = bound(_period, 1, MAX_VESTING_PERIOD);
+        mintNdaoAndApproveNvt(admin, _amount);
+
+        vm.prank(admin);
+        expectEvent_VestLocked(_vestee, _amount, _period);
+        nvt.vestLock(_vestee, _amount, _period);
+
+        VestingSchedule memory _schedule = nvt.getVestingSchedule(_vestee);
+
+        assertEq(ndao.balanceOf(address(nvt)), _amount);
+        assertEq(nvt.balanceOf(_vestee), _amount);
+        assertEq(_schedule.startDate, block.timestamp);
+        assertEq(_schedule.vestDate, block.timestamp + _period);
+    }
+
+    function testFuzz_CannotVestLockForZeroSeconds(address _vestee, uint256 _amount) public {
+        vm.expectRevert(InvalidVestingPeriod.selector);
+        vm.prank(admin);
+        nvt.vestLock(_vestee, _amount, 0);
+    }
+
+    function testFuzz_CannotVestToSameAccountTwice(
+        address _vestee,
+        uint256 _amount1,
+        uint256 _amount2,
+        uint256 _period1,
+        uint256 _period2
+    ) public {
+        vm.assume(
+            _vestee != admin &&
+            _vestee != address(0)
+        );
+        _amount1 = bound(_amount1, 0, type(uint224).max);
+        _amount2 = bound(_amount2, 0, type(uint224).max);
+        _period1 = bound(_period1, 1, type(uint256).max);
+        _period2 = bound(_period2, 1, type(uint256).max);
+
+        mintNdaoAndApproveNvt(admin, _amount1 + _amount2);
+
+        vm.startPrank(admin);
+        nvt.vestLock(_vestee, _amount1, _period1);
+        vm.expectRevert(AccountAlreadyVesting.selector);
+        nvt.vestLock(_vestee, _amount2, _period2);
+        vm.stopPrank();
+    }
+
+    function testFuzz_NonAdminCannotVestLock(
+        address _nonAdmin,
+        address _vestee,
+        uint256 _amount,
+        uint256 _period
+    ) public {
+        vm.assume(_nonAdmin != admin);
+
+        vm.expectRevert(Unauthorized.selector);
+        vm.prank(_nonAdmin);
+        nvt.vestLock(_vestee, _amount, _period);
+    }
+}
+
+// Testing the view helper that calculates how much vested NVT is available to the vestee to be unlocked.
+contract AvailableForVestUnlock is NVTTest {
+
+    function testFuzz_AvailableForVestAfterArbitraryTime(
+        address _vestee,
+        uint256 _amount,
+        uint256 _period,
+        uint256 _time
+    ) public {
+        _amount = bound(_amount, 1, MAX_VESTING_AMOUNT);
+        _period = bound(_period, 1, MAX_VESTING_PERIOD);
+        _time = bound(_time, 0, _period);
+
+        mintNdaoAndVest(_vestee, _amount, _period);
+        uint256 _timestamp = block.timestamp + _time;
+        uint256 _expected = (_amount * _time) / _period;
+
+        assertEq(nvt.availableForVestUnlock(_vestee, _timestamp), _expected);
+    }
+
+    function testFuzz_AvailableAfterVestedAndWithdrawingArbitraryAmount(
+        address _vestee,
+        uint256 _vestAmount,
+        uint256 _withdrawAmount,
+        uint256 _period
+    ) public {
+        _vestAmount = bound(_vestAmount, 1, MAX_VESTING_AMOUNT);
+        _withdrawAmount = bound(_withdrawAmount, 0, _vestAmount);
+        _period = bound(_period, 1, MAX_VESTING_PERIOD);
+
+        // Vest then jump to fully vested date.
+        mintNdaoAndVest(_vestee, _vestAmount, _period);
+        skip(_period);
+
+        // Withdraw some of the vest.
+        vm.prank(_vestee);
+        nvt.unlockVested(_withdrawAmount);
+
+        assertEq(nvt.availableForVestUnlock(_vestee, block.timestamp), _vestAmount - _withdrawAmount);
+    }
+
+    function testFuzz_AvailableAfterWithdrawingAllVested(address _vestee, uint256 _amount) public {
+        _amount = bound(_amount, 1, MAX_VESTING_AMOUNT);
+        uint256 _period = 4 * (365 days);
+        mintNdaoAndVest(_vestee, _amount, _period);
+
+        // Jump ahead a quarter of the vesting period.
+        skip(_period / 4);
+
+        // Unlock a quarter of funds, i.e. all vested.
+        vm.prank(_vestee);
+        nvt.unlockVested(_amount / 4);
+
+        assertEq(nvt.availableForVestUnlock(_vestee, block.timestamp), 0);
+    }
+
+    function testFuzz_AvailableAfterPartialWithdrawalAndMultipleTimeSpans(
+        address _vestee,
+        uint256 _amount
+    ) public {
+        _amount = bound(_amount, 1, MAX_VESTING_AMOUNT);
+        uint256 _period = 4 * (365 days);
+        mintNdaoAndVest(_vestee, _amount, _period);
+
+        skip(_period / 3);
+
+        // Unlock a quarter of funds, a subset of what is vested.
+        vm.prank(_vestee);
+        nvt.unlockVested(_amount / 4);
+        uint256 _expected = _amount / 3 - _amount / 4;
+
+        assertEq(nvt.availableForVestUnlock(_vestee, block.timestamp), _expected);
+
+        uint256 _timestamp = block.timestamp + _period;
+        assertEq(nvt.availableForVestUnlock(_vestee, _timestamp), _amount - _amount / 4);
+    }
+}
+
+// Testing the ability of the vestee to unlock vested NVT for NDAO.
+contract UnlockVested is NVTTest {
+
+    function testFuzz_VesteeCannotUnlockAnyImmediately(address _vestee, uint256 _vestAmount, uint256 _period) public {
+        _vestAmount = bound(_vestAmount, 1, MAX_VESTING_AMOUNT);
+        _period = bound(_period, 1, MAX_VESTING_PERIOD);
+        mintNdaoAndVest(_vestee, _vestAmount, _period);
+
+        vm.prank(_vestee);
+        vm.expectRevert(InvalidUnlockRequest.selector);
+        nvt.unlockVested(1);
+    }
+
+    function testFuzz_VesteeCanUnlockAllAtFullVest(address _vestee, uint256 _amount, uint256 _period) public {
+        _amount = bound(_amount, 1, MAX_VESTING_AMOUNT);
+        _period = bound(_period, 1, MAX_VESTING_PERIOD);
+        mintNdaoAndVest(_vestee, _amount, _period);
+
+        skip(_period);
+
+        vm.prank(_vestee);
+        expectEvent_VestUnlocked(_vestee, _amount);
+        nvt.unlockVested(_amount);
+
+        assertEq(nvt.balanceOf(_vestee), 0);
+        assertEq(ndao.balanceOf(_vestee), _amount);
+        assertEq(ndao.balanceOf(address(nvt)), 0);
+    }
+
+    function testFuzz_VesteeUnlockQuarterAfterQuarter(address _vestee, uint256 _amount) public {
+        _amount = bound(_amount, 1, MAX_VESTING_AMOUNT);
+        uint256 _period = 2 * (365 days);
+        mintNdaoAndVest(_vestee, _amount, _period);
+
+        // Jump ahead a quarter of the period.
+        skip(_period / 4);
+
+        // Unlock a quarter of the total, i.e. all that's vested.
+        vm.prank(_vestee);
+        nvt.unlockVested(_amount / 4);
+
+        assertEq(nvt.balanceOf(_vestee), _amount - _amount / 4);
+        assertEq(ndao.balanceOf(_vestee), _amount / 4);
+    }
+
+    function testFuzz_VesteeUnlockPartialAvailable(address _vestee, uint256 _amount) public {
+        _amount = bound(_amount, 1, MAX_VESTING_AMOUNT);
+        uint256 _period = 2 * (365 days);
+        mintNdaoAndVest(_vestee, _amount, _period);
+
+        // Jump ahead half the period.
+        skip(_period / 2);
+
+        // Unlock a third of total, i.e. only a portion of what's vested.
+        vm.prank(_vestee);
+        expectEvent_VestUnlocked(_vestee, _amount / 3);
+        nvt.unlockVested(_amount / 3);
+
+        assertEq(nvt.balanceOf(_vestee), _amount - _amount / 3);
+        assertEq(ndao.balanceOf(_vestee), _amount / 3);
+    }
+
+    function testFuzz_VesteeUnlockOverTwoTimeSpans(address _vestee, uint256 _amount) public {
+        _amount = bound(_amount, 1, MAX_VESTING_AMOUNT);
+        uint256 _period = 2 * (365 days);
+        mintNdaoAndVest(_vestee, _amount, _period);
+
+        // Jump ahead a third of period.
+        skip(_period / 3);
+
+        // Unlock some of what's vested, a quarter.
+        vm.prank(_vestee);
+        nvt.unlockVested(_amount / 4);
+
+        assertEq(nvt.balanceOf(_vestee), _amount - _amount / 4);
+        assertEq(ndao.balanceOf(_vestee), _amount / 4);
+
+        // Jump ahead another period, well past the vest date.
+        skip(_period);
+
+        // Unlock the rest of the staked NVT.
+        vm.prank(_vestee);
+        nvt.unlockVested(_amount - _amount / 4);
+
+        assertEq(nvt.balanceOf(_vestee), 0);
+        assertEq(ndao.balanceOf(_vestee), _amount);
+    }
+
+    function testFuzz_CannotUnlockVestedTokensTwice(address _vestee, address _holder, uint256 _amount) public {
+        vm.assume(_vestee != _holder);
+        _amount = bound(_amount, 1, MAX_VESTING_AMOUNT / 2);
+        uint256 _period = 2 * (365 days);
+        mintNdaoAndVest(_vestee, _amount, _period);
+        // Mint and lock some other tokens that the vestee could 'steal.'
+        mintNdaoAndVoteLock(_holder, _amount);
+
+        // Jump ahead the period.
+        skip(_period);
+
+        // Unlock it all.
+        vm.prank(_vestee);
+        nvt.unlockVested(_amount);
+
+        assertEq(nvt.balanceOf(_vestee), 0);
+        assertEq(ndao.balanceOf(_vestee), _amount);
+
+        // Try to unlock it again.
+        vm.prank(_vestee);
+        vm.expectRevert(InvalidUnlockRequest.selector);
+        nvt.unlockVested(_amount);
+    }
+}
+
+// Testing the ability of the admin to clawback non-vested NVT from a vestee.
+contract Clawback is NVTTest {
+
+    function testFuzz_ClawbackAllImmediately(address _vestee, uint256 _amount, uint256 _period) public {
+        _amount = bound(_amount, 1, MAX_VESTING_AMOUNT);
+        _period = bound(_period, 1, MAX_VESTING_PERIOD);
+        mintNdaoAndVest(_vestee, _amount, _period);
+
+        vm.prank(admin);
+        expectEvent_ClawedBack(_vestee, _amount);
+        nvt.clawback(_vestee);
+
+        uint256 _vestDate = block.timestamp + _period;
+        VestingSchedule memory _schedule = nvt.getVestingSchedule(_vestee);
+
+        assertEq(ndao.balanceOf(admin), _amount);
+        assertEq(nvt.availableForVestUnlock(_vestee, _vestDate), 0);
+        assertEq(_schedule.balance, 0);
+        assertTrue(_schedule.wasClawedBack);
+    }
+
+    function testFuzz_NothingToClawbackOnSecondCall(address _vestee, address _holder, uint256 _amount, uint256 _period) public {
+        vm.assume(_vestee != _holder);
+        _amount = bound(_amount, 1, MAX_VESTING_AMOUNT / 2);
+        _period = bound(_period, 1, MAX_VESTING_PERIOD);
+        mintNdaoAndVest(_vestee, _amount, _period);
+        // Mint and lock some other ndao the admin could 'steal.'
+        mintNdaoAndVoteLock(_holder, _amount);
+
+        // Clawback.
+        vm.prank(admin);
+        expectEvent_ClawedBack(_vestee, _amount);
+        nvt.clawback(_vestee);
+
+        uint256 _vestDate = block.timestamp + _period;
+
+        assertEq(ndao.balanceOf(admin), _amount);
+        assertEq(nvt.availableForVestUnlock(_vestee, _vestDate), 0);
+
+        // Try to clawback again.
+        vm.prank(admin);
+        expectEvent_ClawedBack(_vestee, 0);
+        nvt.clawback(_vestee);
+
+        // There is no change because there is nothing to clawback.
+        assertEq(ndao.balanceOf(admin), _amount);
+        assertEq(ndao.balanceOf(address(nvt)), _amount);
+        assertEq(nvt.availableForVestUnlock(_vestee, _vestDate), 0);
+    }
+
+    function testFuzz_CannotClawbackVestedTokens(address _vestee, uint256 _amount) public {
+        _amount = bound(_amount, 1, MAX_VESTING_AMOUNT);
+        uint256 _period = 547 days; // ~1.5 years
+        mintNdaoAndVest(_vestee, _amount, _period);
+
+        // Jump ahead a third of the vesting period.
+        skip(_period / 3);
+
+        uint256 _expectedVested = _amount / 3;
+        uint256 _expectedClawback = _amount - _expectedVested;
+
+        // Clawback unvested tokens, i.e 2/3rds
+        vm.prank(admin);
+        expectEvent_ClawedBack(_vestee, _expectedClawback);
+        nvt.clawback(_vestee);
+
+        assertEq(ndao.balanceOf(admin), _expectedClawback);
+        assertEq(nvt.availableForVestUnlock(_vestee, block.timestamp), _expectedVested);
+
+        // Jump ahead another bit of time.
+        skip(_period / 2);
+
+        // The vestee should still have the original vested tokens available to claim.
+        assertEq(nvt.availableForVestUnlock(_vestee, block.timestamp), _expectedVested);
+
+        // The vestee should be able to unlock them.
+        vm.prank(_vestee);
+        nvt.unlockVested(_expectedVested);
+
+        assertEq(ndao.balanceOf(_vestee), _expectedVested);
+        assertEq(nvt.availableForVestUnlock(_vestee, block.timestamp), 0);
+    }
+
+    function testFuzz_ClawbackAfterVestingAndPartialWithdraw(address _vestee, uint256 _amount) public {
+        _amount = bound(_amount, 1, MAX_VESTING_AMOUNT);
+        uint256 _period = 547 days; // ~1.5 years
+        mintNdaoAndVest(_vestee, _amount, _period);
+
+        // Jump ahead a third of the vesting period.
+        skip(_period / 3);
+
+        // Unlock a subset of what is vested.
+        vm.prank(_vestee);
+        nvt.unlockVested(_amount / 4);
+
+        // Sanity check unlock.
+        assertEq(ndao.balanceOf(_vestee), _amount / 4);
+
+        // Clawback unvested tokens, i.e. 2/3rds.
+        vm.prank(admin);
+        nvt.clawback(_vestee);
+
+        uint256 _expectedVested = _amount / 3;
+        uint256 _expectedClawback = _amount - _expectedVested;
+        uint256 _expectedAvailable = _expectedVested - _amount / 4;
+
+        assertEq(ndao.balanceOf(admin), _expectedClawback);
+        assertEq(nvt.availableForVestUnlock(_vestee, block.timestamp), _expectedAvailable);
+        // At various points in the future the amount available is still the same.
+        assertEq(nvt.availableForVestUnlock(_vestee, block.timestamp + _period / 2), _expectedAvailable);
+        assertEq(nvt.availableForVestUnlock(_vestee, block.timestamp + _period), _expectedAvailable);
+
+        // The vestee should be able to unlock remaining balance.
+        vm.prank(_vestee);
+        nvt.unlockVested(_expectedAvailable);
+
+        assertEq(ndao.balanceOf(_vestee), _expectedVested);
+        assertEq(nvt.availableForVestUnlock(_vestee, block.timestamp), 0);
+        assertEq(nvt.availableForVestUnlock(_vestee, block.timestamp + _period / 2), 0);
+        assertEq(nvt.availableForVestUnlock(_vestee, block.timestamp + _period), 0);
+    }
+
+    function testFuzz_PartialWithdrawAfterClawback(address _vestee, uint256 _amount) public {
+        _amount = bound(_amount, 1, MAX_VESTING_AMOUNT);
+        uint256 _period = 547 days; // ~1.5 years
+        mintNdaoAndVest(_vestee, _amount, _period);
+
+        // Jump ahead a third of the vesting period.
+        skip(_period / 3);
+
+        // Clawback unvested tokens, i.e. 2/3rds.
+        vm.prank(admin);
+        nvt.clawback(_vestee);
+
+        uint256 _expectedVested = _amount / 3;
+        uint256 _expectedClawback = _amount - _expectedVested;
+
+        assertEq(ndao.balanceOf(admin), _expectedClawback);
+        assertEq(nvt.availableForVestUnlock(_vestee, block.timestamp), _expectedVested);
+        // At various points in the future the amount available is still the same.
+        assertEq(nvt.availableForVestUnlock(_vestee, block.timestamp + _period / 2), _expectedVested);
+        assertEq(nvt.availableForVestUnlock(_vestee, block.timestamp + _period), _expectedVested);
+
+        // Unlock a subset of what is vested.
+        vm.prank(_vestee);
+        nvt.unlockVested(_amount / 4);
+
+        uint256 _expectedAvailable = _expectedVested - _amount / 4;
+
+        assertEq(ndao.balanceOf(_vestee), _amount / 4);
+        assertEq(nvt.availableForVestUnlock(_vestee, block.timestamp), _expectedAvailable);
+        assertEq(nvt.availableForVestUnlock(_vestee, block.timestamp + _period / 2), _expectedAvailable);
+        assertEq(nvt.availableForVestUnlock(_vestee, block.timestamp + _period), _expectedAvailable);
+
+        // The vestee should be able to unlock remaining balance.
+        vm.prank(_vestee);
+        nvt.unlockVested(_expectedAvailable);
+
+        assertEq(ndao.balanceOf(_vestee), _expectedVested);
+        assertEq(nvt.availableForVestUnlock(_vestee, block.timestamp), 0);
+        assertEq(nvt.availableForVestUnlock(_vestee, block.timestamp + _period / 2), 0);
+        assertEq(nvt.availableForVestUnlock(_vestee, block.timestamp + _period), 0);
+    }
+
+    function testFuzz_NonAdminCannotCallClawback(address _nonAdmin, address _vestee) public {
+        vm.assume(_nonAdmin != admin);
+
+        vm.prank(_nonAdmin);
+        vm.expectRevert(Unauthorized.selector);
+        nvt.clawback(_vestee);
     }
 }

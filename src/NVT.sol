@@ -13,6 +13,8 @@ interface INDAO {
     function transfer(address to, uint256 amount) external returns (bool);
     /// @dev see IERC20
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
+    /// @dev see NDAO
+    function admin() external returns (address);
 }
 
 /**
@@ -33,17 +35,44 @@ abstract contract NVTTypes {
         uint256 amount; // The amount of NDAO to be unlocked.
     }
 
+    /// @notice Data associated with an accounts vesting token distribution.
+    struct VestingSchedule {
+        uint256 startDate; // Unix timestamp of when the vesting started.
+        uint256 vestDate; // Unix timestamp of when fully vested.
+        uint256 amount; // Amount of tokens originally locked for vesting.
+        uint256 balance; // The balance of tokens (vested & unvested) that have not yet been claimed by the vestee.
+        bool wasClawedBack; // Flag denoting if this vesting distribution was clawed back by the admin.
+    }
+
     /// @notice Thrown when a caller attempts a transfer related ERC20 method.
     error TransferDisallowed();
 
     /// @notice Thrown when an unlock request cannot be processed.
     error InvalidUnlockRequest();
 
+    /// @notice Thrown when an account other than the admin calls a privileged method.
+    error Unauthorized();
+
+    /// @notice Thrown if a 0-length vesting period is specified.
+    error InvalidVestingPeriod();
+
+    /// @notice Thrown if a vest lock is attempted for an existing vestee.
+    error AccountAlreadyVesting();
+
     /// @notice Emitted when a user vote locks NDAO for NVT.
     event Locked(address indexed holder, uint256 indexed depositIndex, uint256 amount);
 
     /// @notice Emitted when a user unlocks NVT for NDAO.
     event Unlocked(address indexed holder, uint256 indexed depositIndex, uint256 amount);
+
+    /// @notice Emitted when tokens are locked for vesting to a vestee.
+    event VestLocked(address indexed vestee, uint256 amount, uint256 period);
+
+    /// @notice Emitted when a vestee unlocks vested NVT tokens for NDAO.
+    event VestUnlocked(address indexed vestee, uint256 amount);
+
+    /// @notice Emitted when the admin reclaims tokens that have not yet vested to a vestee.
+    event ClawedBack(address indexed vestee, uint256 amount);
 }
 
 /**
@@ -60,8 +89,11 @@ contract NVT is NVTTypes, ERC20Votes {
     /// @notice The NDAO Token address.
     INDAO public immutable ndao;
 
-    /// @notice A mapping of NVT holders to their deposits of NDAO that have been locked.
+    /// @notice A mapping of NVT holders to their deposits of NDAO that have been vote locked.
     mapping(address => Deposit[]) deposits;
+
+    /// @notice A mapping of vesting NVT holders to their vesting schedules.
+    mapping(address => VestingSchedule) vestingSchedules;
 
     // --- Constructor ---
 
@@ -79,7 +111,8 @@ contract NVT is NVTTypes, ERC20Votes {
      * the given timestamp.
      * @param _holder The address of the NVT token holder.
      * @param _index The index of deposit to interrogate.
-     * @param _timestamp The unix timestamp at which the available NDAO will be calculated.
+     * @param _timestamp The Unix timestamp at which the available NDAO will be calculated.
+     * @return _available The amount of NVT that can be unlocked for NDAO.
      */
     function availableForWithdrawal(
         address _holder,
@@ -112,6 +145,47 @@ contract NVT is NVTTypes, ERC20Votes {
         }
 
         return _available;
+    }
+
+    /**
+     * @notice Calculate how much vested NVT can be vest unlocked for NDAO for a given vestee, at the given timestamp.
+     * @param _vestee The account of the vesting NVT token holder.
+     * @param _timestamp The unix timestamp at which the available NDAO will be calculated.
+     * @return _available The amount of NDAO available for this vestee to unlock at this timestamp.
+     */
+    function availableForVestUnlock(address _vestee, uint256 _timestamp) public view returns (uint256) {
+        VestingSchedule memory _schedule = vestingSchedules[_vestee];
+
+        // After a clawback, the only balance left is by definition already vested.
+        if (_schedule.wasClawedBack) {
+            return _schedule.balance;
+        }
+
+        uint256 _duration;
+        uint256 _elapsed;
+
+        unchecked {
+            // In the vestLock method, the vest date is defined as the start date *plus* the period (i.e. duration).
+            _duration = _schedule.vestDate - _schedule.startDate;
+
+            // Since start date is the recorded block timestamp, this cannot overflow unless
+            // the caller passes a date in the past. Internally, we always pass the block.timestamp
+            // when calling this method, so it should always be safe.
+            _elapsed = _timestamp - _schedule.startDate;
+        }
+
+        if (_elapsed > _duration) {
+            return _schedule.balance;
+        }
+
+        uint256 _totalVested = (_elapsed * _schedule.amount) / _duration;
+
+        unchecked {
+            // Amount and balance start the same, and balance can only be decremented.
+            uint256 _alreadyWithdrawn = _schedule.amount - _schedule.balance;
+            // Implied invariant: the user has not already withdrawn more than they have vested.
+            return _totalVested - _alreadyWithdrawn;
+        }
     }
 
     // --- ERC-20 Overrides ---
@@ -187,6 +261,74 @@ contract NVT is NVTTypes, ERC20Votes {
         }
     }
 
+    /**
+     * @notice Lock vesting NDAO tokens for a vestee and grant them NVT. Admin only.
+     * @param _vestee The account receiving the vesting distribution. Each account can only receive
+     * one vesting distribution.
+     * @param _amount The number of NDAO tokens to be converted to NVT and vested.
+     * @param _period The length of time over which tokens vest in seconds. Must be > 0.
+     */
+    function vestLock(address _vestee, uint256 _amount, uint256 _period) public {
+        if (msg.sender != ndao.admin()) revert Unauthorized();
+        if (_period == 0) revert InvalidVestingPeriod();
+        if (vestingSchedules[_vestee].vestDate != 0) revert AccountAlreadyVesting();
+
+        _mint(_vestee, _amount);
+        vestingSchedules[_vestee] = VestingSchedule({
+            startDate: block.timestamp,
+            vestDate: block.timestamp + _period,
+            amount: _amount,
+            balance: _amount,
+            wasClawedBack: false
+        });
+        ndao.transferFrom(msg.sender, address(this), _amount);
+
+        emit VestLocked(_vestee, _amount, _period);
+    }
+
+    /**
+     * @notice Unlocks NVT tokens which have vested to the caller for NDAO.
+     * @param _amount The number of NDAO which will be unlocked by burning vested NVT.
+     */
+    function unlockVested(uint256 _amount) public {
+        uint256 _available = availableForVestUnlock(msg.sender, block.timestamp);
+        if (_amount > _available) revert InvalidUnlockRequest();
+
+        _burn(msg.sender, _amount);
+        unchecked {
+            // The _available is less than or equal to balance, and _available is checked to be less than
+            // _amount above, thus subtracting _amount from balance cannot overflow.
+            vestingSchedules[msg.sender].balance -= _amount;
+        }
+        ndao.transfer(msg.sender, _amount);
+
+        emit VestUnlocked(msg.sender, _amount);
+    }
+
+    /**
+     * @notice Returns all unvested tokens to the admin for a given vestee. Cannot clawback any vested tokens,
+     * whether they have been unlocked or not.
+     * @param _vestee The vestee to claw back from.
+     */
+    function clawback(address _vestee) public {
+        if (msg.sender != ndao.admin()) revert Unauthorized();
+
+        uint256 _vestedBalance = availableForVestUnlock(_vestee, block.timestamp);
+
+        uint256 _unvestedBalance;
+        unchecked {
+            // Implied invariant: the vestee has not already withdrawn more than they have vested.
+            _unvestedBalance = vestingSchedules[_vestee].balance - _vestedBalance;
+            vestingSchedules[_vestee].balance -= _unvestedBalance;
+        }
+
+        vestingSchedules[_vestee].wasClawedBack = true;
+        _burn(_vestee, _unvestedBalance);
+        ndao.transfer(msg.sender, _unvestedBalance);
+
+        emit ClawedBack(_vestee, _unvestedBalance);
+    }
+
     // --- Internal Methods ---
 
     /// @dev Internal helper to process a single unlock request.
@@ -217,9 +359,19 @@ contract NVT is NVTTypes, ERC20Votes {
      * @notice Helper method for accessing deposit data externally.
      * @param _holder The address of the NVT token holder.
      * @param _index The index of the deposit to retrieve.
+     * @return _deposit The deposit for this holder at a given index.
      */
     function getDeposit(address _holder, uint256 _index) external view returns (Deposit memory) {
         return deposits[_holder][_index];
+    }
+
+    /**
+     * @notice Helper method for accessing vesting schedule data externally.
+     * @param _vestee The account of the vesting NVT token holder.
+     * @return _vestingSchedule The vesting schedule data for this vestee.
+     */
+    function getVestingSchedule(address _vestee) external view returns (VestingSchedule memory) {
+        return vestingSchedules[_vestee];
     }
 
      /**
