@@ -2,12 +2,12 @@
 pragma solidity ^0.8.12;
 
 import { DSTestPlus as DSTestPlusSolmate } from "solmate/test/utils/DSTestPlus.sol";
-import { Test } from "forge-std/Test.sol";
+import "forge-std/Test.sol";
 import { Registry } from "../../Registry.sol";
+import { Entity } from "../../Entity.sol";
 
 // Extends DSPlus with additional helper methods
 contract DSTestPlus is DSTestPlusSolmate, Test {
-
   // Takes a human-readable value and scales it (named after the ethers.js method with the same functionality)
   function parseUnits(uint256 x, uint256 decimals) internal pure returns (uint256) {
     return x * 10 ** decimals;

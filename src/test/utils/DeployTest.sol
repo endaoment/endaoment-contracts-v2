@@ -5,14 +5,20 @@ import "./DeployAll.sol";
 import "./DSTestPlus.sol";
 import { ISwapWrapper } from "../../interfaces/ISwapWrapper.sol";
 import { UniV3Wrapper } from "../../swapWrappers/UniV3Wrapper.sol";
+import { ERC20 } from "solmate/tokens/ERC20.sol";
 
 /**
  * @dev Adds additional config after deployment to facilitate testing
  */
 contract DeployTest is DeployAll, DSTestPlus {
+  using stdStorage for StdStorage;
+
   // Entity Types
   uint8 public constant OrgType = 1;
   uint8 public constant FundType = 2;
+
+  uint256 public constant MIN_DONATION_TRANSFER_AMOUNT = 5;
+  uint256 public constant MAX_DONATION_TRANSFER_AMOUNT = 10000000;
 
   // Registry operations
   bytes4 public setEntityStatus = bytes4(keccak256("setEntityStatus(address,bool)"));
@@ -73,5 +79,15 @@ contract DeployTest is DeployAll, DSTestPlus {
     globalTestRegistry.setUserRole(programCommittee, 11, true);
 
     vm.stopPrank();
+  }
+
+  // local helper function to set an entity's balance
+  function _setEntityBalance(Entity _entity, uint256 _newBalance) internal {
+      stdstore
+          .target(address(_entity))
+          .sig(_entity.balance.selector)
+          .checked_write(_newBalance);
+      ERC20 _baseToken = globalTestRegistry.baseToken();
+      deal(address(_baseToken), address(_entity), _newBalance);
   }
 }

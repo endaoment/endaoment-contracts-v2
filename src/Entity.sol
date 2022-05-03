@@ -10,6 +10,7 @@ import { Math } from "./lib/Math.sol";
 error EntityInactive();
 error InsufficientFunds();
 error InvalidAction();
+error InvalidTransferAttempt();
 
 /**
  * @notice Entity contract inherited by Org and Fund contracts (and all future kinds of Entities).
@@ -32,6 +33,12 @@ abstract contract Entity is Auth {
 
     /// @notice Emitted when manager is set.
     event EntityManagerSet(address indexed oldManager, address indexed newManager);
+
+    /// @notice Emitted when a donation is made.
+    event EntityDonationReceived(address indexed from, address indexed to, uint256 amountReceived, uint256 amountFee);
+
+    /// @notice Emitted when a transfer is made between entities.
+    event EntityFundsTransferred(address indexed from, address indexed to, uint256 amountReceived, uint256 amountFee);
 
     /**
      * @notice Modifier for methods that require auth and that the manager cannot access.
@@ -101,10 +108,11 @@ abstract contract Entity is Auth {
             // unchecked as no possibility of overflow with baseToken precision
             balance += _netAmount;
         }
+        emit EntityDonationReceived(msg.sender, address(this), _amount, _fee);
     }
 
     /**
-     * @notice Transfers an amount of base tokens from this entity to another entity.
+     * @notice Transfers an amount of base tokens from one entity to another. Transfers fee to treasury.
      * @param _to The entity to receive the tokens.
      * @param _amount Contains the amount being donated (denominated in the base token's units).
      * @dev Reverts if the entity is inactive or if the token transfer fails.
@@ -124,15 +132,26 @@ abstract contract Entity is Auth {
             // unchecked as the _feeMultiplier check with revert above protects against overflow
             _netAmount = _amount - _fee;
         }
-
-        baseToken.safeTransferFrom(msg.sender, registry.treasury(), _fee);
+        baseToken.safeTransfer(registry.treasury(), _fee);
         baseToken.safeTransfer(address(_to), _netAmount);
 
         unchecked {
             // unchecked as no possibility of overflow with baseToken precision
             balance -= _amount;
+            _to.receiveTransfer(_netAmount);
         }
+        emit EntityFundsTransferred(address(this), address(_to), _amount, _fee);
     }
+
+    /**
+     * @notice Updates the receiving entity balance on a transfer, after verifying that the receiver's ERC20 balance has increased appropriately.
+     * @param _transferAmount The amount being received on the transfer.
+     * @dev This function is public, but is restricted such that it can only be called by other entities.
+     */
+     function receiveTransfer(uint256 _transferAmount) public {
+         if (!registry.isActiveEntity(Entity(msg.sender))) revert InvalidTransferAttempt();
+         balance += _transferAmount;
+     }
 
     /**
      * @dev We override Auth.sol:isAuthorized() in order to achieve the following:
