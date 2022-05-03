@@ -7,7 +7,7 @@
 fuzz-runs = 100
 verbosity = 3
 # solidity config
-solc-version = "0.8.12"
+solc-version = "0.8.13"
 optimizer = true
 optimizer-runs = 9999999
 

@@ -1087,10 +1087,10 @@ contract VestLock is NVTTest {
             _vestee != admin &&
             _vestee != address(0)
         );
-        _amount1 = bound(_amount1, 0, type(uint224).max);
-        _amount2 = bound(_amount2, 0, type(uint224).max);
-        _period1 = bound(_period1, 1, type(uint256).max);
-        _period2 = bound(_period2, 1, type(uint256).max);
+        _amount1 = bound(_amount1, 0, MAX_VESTING_AMOUNT);
+        _amount2 = bound(_amount2, 0, MAX_VESTING_AMOUNT);
+        _period1 = bound(_period1, 1, MAX_VESTING_PERIOD);
+        _period2 = bound(_period2, 1, MAX_VESTING_PERIOD);
 
         mintNdaoAndApproveNvt(admin, _amount1 + _amount2);
 
