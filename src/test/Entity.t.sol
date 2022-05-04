@@ -53,6 +53,7 @@ abstract contract EntityDonateTransferTest is DeployTest {
 
     event EntityDonationReceived(address indexed from, address indexed to, uint256 amount, uint256 fee);
     event EntityFundsTransferred(address indexed from, address indexed to, uint256 amountReceived, uint256 amountFee);
+    event EntityBalanceReconciled(address indexed entity, uint256 amountReceived, uint256 amountFee);
 
     // local helper function to pick a receiving entity type for transfers, given an _entityType from the fuzzer
     //  (sets the instance variable receivingEntity as a side-effect)
@@ -380,12 +381,121 @@ abstract contract EntityDonateTransferTest is DeployTest {
         entity.transferWithOverrides(receivingEntity, 1);
     }
 
-    // Test than the receiveTransfer function fails if not called by another entity.
+    // Test that the receiveTransfer function fails if not called by another entity.
     // The 'happy path' of receiveTransfer function testing is performed above in testFuzz_TransferSuccess.
     function testFuzz_ReceiveTransferFailInvalidTransferAttempt(uint256 _transferAmount) public {
         vm.expectRevert(InvalidTransferAttempt.selector);
         vm.prank(board);
         entity.receiveTransfer(_transferAmount);
+    }
+
+    // Test that the reconcileBalance function sweeps 'rogue' baseTokens that have been deposited into the entity contract balance,
+    //  and updates the balance (less default fee) and verifies that the fee has been taken from the swept amount and deposited to the treasury
+    function testFuzz_ReconcileBalanceSuccess(address _manager, uint256 _balanceAmount, uint256 _sweepAmount, uint256 _feePercent) public {
+        _balanceAmount = bound(_balanceAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _sweepAmount = bound(_sweepAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _feePercent = bound(_feePercent, 0, Math.ZOC);
+        vm.startPrank(board);
+        // set the default donation fee to some percentage between 0 and 100 percent
+        globalTestRegistry.setDefaultDonationFee(testEntityType, uint32(_feePercent));
+        entity.setManager(_manager);
+        vm.stopPrank();
+        // preset the requested amount of basetokens into the entity
+        _setEntityBalance(entity, _balanceAmount);
+        ERC20 _baseToken = globalTestRegistry.baseToken();
+        // update the token balance to be more than the entity balance so the sweep can be attempted
+        deal(address(_baseToken), address(entity), _balanceAmount + _sweepAmount);
+        uint256 _amountFee = Math.zocmul(_sweepAmount, _feePercent);
+        uint256 _amountReceived = _sweepAmount - _amountFee;
+        vm.startPrank(_manager);
+        _baseToken.approve(address(entity),  _balanceAmount + _sweepAmount);
+        vm.expectEmit(true, false, false, true);
+        emit EntityBalanceReconciled(address(entity), _sweepAmount, _amountFee);
+        entity.reconcileBalance();
+        assertEq(_baseToken.balanceOf(treasury), _amountFee);
+        assertEq(entity.balance(), _balanceAmount + _amountReceived);
+        vm.stopPrank();
+    }
+
+    // Test that the reconcileBalance function sweeps 'rogue' baseTokens that have been deposited into the entity contract balance,
+    //  and updates the balance (less override fee) and verifies that the fee has been taken from the swept amount and deposited to the treasury
+    function testFuzz_ReconcileBalanceWithOverrideSuccess(address _manager, uint256 _balanceAmount, uint256 _sweepAmount, uint256 _feePercent) public {
+        _balanceAmount = bound(_balanceAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _sweepAmount = bound(_sweepAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _feePercent = bound(_feePercent, onePercentZoc, Math.ZOC);
+        vm.startPrank(board);
+        // set the default donation fee to some percentage between 1 and 100 percent
+        globalTestRegistry.setDefaultDonationFee(testEntityType, uint32(_feePercent));
+        // set the donation override fee to one percent less than the default fee percentage
+        globalTestRegistry.setDonationFeeReceiverOverride(entity, uint32(_feePercent - onePercentZoc));
+        entity.setManager(_manager);
+        vm.stopPrank();
+        // preset the requested amount of basetokens into the entity
+        _setEntityBalance(entity, _balanceAmount);
+        ERC20 _baseToken = globalTestRegistry.baseToken();
+        // update the token balance to be more than the entity balance so the sweep can be attempted
+        deal(address(_baseToken), address(entity), _balanceAmount + _sweepAmount);
+        uint256 _amountFee = Math.zocmul(_sweepAmount, _feePercent - onePercentZoc);
+        uint256 _amountReceived = _sweepAmount - _amountFee;
+        vm.startPrank(_manager);
+        _baseToken.approve(address(entity),  _balanceAmount + _sweepAmount);
+        vm.expectEmit(true, false, false, true);
+        emit EntityBalanceReconciled(address(entity), _sweepAmount, _amountFee);
+        entity.reconcileBalance();
+        assertEq(_baseToken.balanceOf(treasury), _amountFee);
+        assertEq(entity.balance(), _balanceAmount + _amountReceived);
+        vm.stopPrank();
+    }
+
+    // Test that the reconcileBalance function emits an appropriate event when there are no 'rogue' baseTokens to be swept into the contract balance.
+    function testFuzz_ReconcileBalanceSuccessNoTokens(address _manager, uint256 _balanceAmount, uint256 _feePercent) public {
+        _balanceAmount = bound(_balanceAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _feePercent = bound(_feePercent, 0, Math.ZOC);
+        vm.startPrank(board);
+        // set the default donation fee to some percentage between 0 and 100 percent
+        globalTestRegistry.setDefaultDonationFee(testEntityType, uint32(_feePercent));
+        entity.setManager(_manager);
+        vm.stopPrank();
+        // preset the requested amount of basetokens into the entity
+        _setEntityBalance(entity, _balanceAmount);
+        vm.startPrank(_manager);
+        vm.expectEmit(true, false, false, true);
+        emit EntityBalanceReconciled(address(entity), 0, 0);
+        entity.reconcileBalance();
+        ERC20 _baseToken = globalTestRegistry.baseToken();
+        assertEq(_baseToken.balanceOf(treasury), 0);
+        assertEq(entity.balance(), _balanceAmount);
+        vm.stopPrank();
+    }
+
+    // Test that the reconcileBalance function fails when the entity donations disallowed via default donation fee setting.
+    function testFuzz_ReconcileBalanceFailInvalidAction(address _manager, uint256 _balanceAmount, uint256 _sweepAmount) public {
+        _balanceAmount = bound(_balanceAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _sweepAmount = bound(_sweepAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        vm.startPrank(board);
+        // set the default donation fee to some percentage between 0 and 100 percent
+        globalTestRegistry.setDefaultDonationFee(testEntityType, type(uint32).max);
+        entity.setManager(_manager);
+        vm.stopPrank();
+        // preset the requested amount of basetokens into the entity
+        _setEntityBalance(entity, _balanceAmount);
+        ERC20 _baseToken = globalTestRegistry.baseToken();
+        // update the token balance to be more than the entity balance so the sweep can be attempted
+        deal(address(_baseToken), address(entity), _balanceAmount + _sweepAmount);
+        vm.startPrank(_manager);
+        _baseToken.approve(address(entity),  _balanceAmount + _sweepAmount);
+        vm.expectRevert(InvalidAction.selector);
+        entity.reconcileBalance();
+        vm.stopPrank();
+    }
+
+    // Test that the reconcileBalance function fails if not called by the entity manager.
+    function testFuzz_ReconcileBalanceFailsUnauthorized(address _manager) public {
+        vm.prank(board);
+        entity.setManager(_manager);
+        vm.expectRevert(Unauthorized.selector);
+        vm.prank(user1);
+        entity.reconcileBalance();
     }
 }
 

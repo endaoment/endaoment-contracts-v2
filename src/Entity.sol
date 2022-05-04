@@ -42,12 +42,14 @@ abstract contract Entity is EndaomentAuth {
     /// @notice Emitted when a transfer is made between entities.
     event EntityFundsTransferred(address indexed from, address indexed to, uint256 amountReceived, uint256 amountFee);
 
+    /// @notice Emitted when a basetoken reconciliation completes
+    event EntityBalanceReconciled(address indexed entity, uint256 amountReceived, uint256 amountFee);
+
     /// @notice Emitted when a portfolio deposit is made.
     event EntityDeposit(address indexed portfolio, uint256 baseTokenDeposited, uint256 sharesRecieved);
 
     /// @notice Emitted when a portfolio share redemption is made.
     event EntityRedeem(address indexed portfolio, uint256 sharesRedeemed, uint256 baseTokenReceived);
-
 
     /**
      * @notice Modifier for methods that require auth and that the manager can access.
@@ -239,5 +241,30 @@ abstract contract Entity is EndaomentAuth {
         }
         emit EntityDeposit(address(_portfolio), _shares, _received);
         return _received;
+    }
+
+    /**
+     * @notice This sweeper method should be called to process amounts of baseToken that arrived at this Entity through methods
+     * besides Entity:donate or Entity:transfer. For example, if this Entity receives a normal ERC20 transfer of baseToken, the
+     * amount received will be unavailable for Entity use until this method is called to adjust the balance and process fees.
+     */
+    function reconcileBalance() external requiresManager {
+        uint256 _sweepAmount = registry.baseToken().balanceOf(address(this)) - balance;
+        uint256 _fee;
+        uint256 _netAmount;
+        if (_sweepAmount > 0) {
+            uint32 _feeMultiplier = registry.getDonationFeeWithOverrides(this);
+            if (_feeMultiplier > Math.ZOC) revert InvalidAction();
+            unchecked {
+                // unchecked as no possibility of overflow with baseToken precision
+                _fee = _sweepAmount.zocmul(_feeMultiplier);
+                // unchecked as the _feeMultiplier check with revert above protects against overflow
+                _netAmount = _sweepAmount - _fee;
+            }
+
+            baseToken.safeTransfer(registry.treasury(), _fee);
+            balance += _netAmount;
+        }
+        emit EntityBalanceReconciled(address(this), _sweepAmount, _fee);
     }
 }
