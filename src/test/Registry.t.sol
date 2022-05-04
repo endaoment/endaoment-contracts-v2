@@ -176,8 +176,8 @@ contract RegistrySetDonationFeeReceiverOverride is RegistryTest {
         emit DonationFeeReceiverOverrideSet(address(_fund1), _fee);
         globalTestRegistry.setDonationFeeReceiverOverride(_fund1, _fee);
         vm.stopPrank();
-        assertEq(globalTestRegistry.getDonationFee(_fund1), _fee);
-        assertEq(globalTestRegistry.getDonationFee(_fund2), _fee + 1);
+        assertEq(globalTestRegistry.getDonationFeeWithOverrides(_fund1), _fee);
+        assertEq(globalTestRegistry.getDonationFeeWithOverrides(_fund2), _fee + 1);
     }
 
     // test zeroing the override for a specific receiving entity triggers an override of no fee
@@ -194,8 +194,20 @@ contract RegistrySetDonationFeeReceiverOverride is RegistryTest {
         emit DonationFeeReceiverOverrideSet(address(_org1), 0);
         globalTestRegistry.setDonationFeeReceiverOverride(_org1, 0);
         vm.stopPrank();
-        assertEq(globalTestRegistry.getDonationFee(_org1), 0);
-        assertEq(globalTestRegistry.getDonationFee(_org2), 10);
+        assertEq(globalTestRegistry.getDonationFeeWithOverrides(_org1), 0);
+        assertEq(globalTestRegistry.getDonationFeeWithOverrides(_org2), 10);
+    }
+
+    // test that not setting the override for a specific receiving entity causes getDonationFeeWithOverrides to return the default fee
+    function testFuzz_SetDonationFeeReceiverOverrideNotDoneYieldsDefaultFee(uint _actor, bytes32 _orgId) public {
+        address actor = actors[_actor % actors.length];
+        Org _org = orgFundFactory.deployOrg(_orgId, "salt");
+        vm.startPrank(actor);
+        vm.expectEmit(true, false, false, false);
+        emit DefaultDonationFeeSet(OrgType, 10);
+        globalTestRegistry.setDefaultDonationFee(OrgType, 10);
+        vm.stopPrank();
+        assertEq(globalTestRegistry.getDonationFeeWithOverrides(_org), 10);
     }
 
     // test that an unauthorized user  cannot set the fee override
@@ -289,8 +301,8 @@ contract RegistrySetTransferFeeSenderOverride is RegistryTest {
         emit TransferFeeSenderOverrideSet(address(_fund1), OrgType, _fee);
         globalTestRegistry.setTransferFeeSenderOverride(_fund1, OrgType, _fee);
         vm.stopPrank();
-        assertEq(globalTestRegistry.getTransferFee(_fund1, _org), _fee);
-        assertEq(globalTestRegistry.getTransferFee(_fund2, _org), _fee + 1);
+        assertEq(globalTestRegistry.getTransferFeeWithOverrides(_fund1, _org), _fee);
+        assertEq(globalTestRegistry.getTransferFeeWithOverrides(_fund2, _org), _fee + 1);
     }
 
     // test the setting of the transfer fee sender override for an entity to zero
@@ -308,8 +320,21 @@ contract RegistrySetTransferFeeSenderOverride is RegistryTest {
         emit TransferFeeSenderOverrideSet(address(_fund1), OrgType, 0);
         globalTestRegistry.setTransferFeeSenderOverride(_fund1, OrgType, 0);
         vm.stopPrank();
-        assertEq(globalTestRegistry.getTransferFee(_fund1, _org), 0);
-        assertEq(globalTestRegistry.getTransferFee(_fund2, _org), 10);
+        assertEq(globalTestRegistry.getTransferFeeWithOverrides(_fund1, _org), 0);
+        assertEq(globalTestRegistry.getTransferFeeWithOverrides(_fund2, _org), 10);
+    }
+
+    // test that not setting transfer overrides getTransferFeeWithOverrides to return the default fee
+    function testFuzz_SetTransferFeeOverrideNotDoneYeildsDefaultFee(uint _actor, address _manager, bytes32 _orgId) public {
+        address actor = actors[_actor % actors.length];
+        Fund _fund = orgFundFactory.deployFund(_manager, "salt");
+        Org _org = orgFundFactory.deployOrg(_orgId, "salt");
+        vm.startPrank(actor);
+        vm.expectEmit(true, true, false, false);
+        emit DefaultTransferFeeSet(FundType, OrgType, 10);
+        globalTestRegistry.setDefaultTransferFee(FundType, OrgType, 10);
+        vm.stopPrank();
+        assertEq(globalTestRegistry.getTransferFeeWithOverrides(_fund, _org), 10);
     }
 
     // test that an unauthorized user  cannot set the transfer fee sender override
@@ -343,8 +368,8 @@ contract RegistrySetTransferFeeReceiverOverride is RegistryTest {
         emit TransferFeeReceiverOverrideSet(FundType, address(_org1), _fee);
         globalTestRegistry.setTransferFeeReceiverOverride(FundType, _org1, _fee);
         vm.stopPrank();
-        assertEq(globalTestRegistry.getTransferFee(_fund, _org1), _fee);
-        assertEq(globalTestRegistry.getTransferFee(_fund, _org2), _fee + 1);
+        assertEq(globalTestRegistry.getTransferFeeWithOverrides(_fund, _org1), _fee);
+        assertEq(globalTestRegistry.getTransferFeeWithOverrides(_fund, _org2), _fee + 1);
     }
 
     // test the setting of the transfer fee receiver override for an entity to zero
@@ -362,8 +387,8 @@ contract RegistrySetTransferFeeReceiverOverride is RegistryTest {
         emit TransferFeeReceiverOverrideSet(FundType, address(_org1), 0);
         globalTestRegistry.setTransferFeeReceiverOverride(FundType, _org1, 0);
         vm.stopPrank();
-        assertEq(globalTestRegistry.getTransferFee(_fund, _org1), 0);
-        assertEq(globalTestRegistry.getTransferFee(_fund, _org2), 10);
+        assertEq(globalTestRegistry.getTransferFeeWithOverrides(_fund, _org1), 0);
+        assertEq(globalTestRegistry.getTransferFeeWithOverrides(_fund, _org2), 10);
     }
 
     // test that an unauthorized user  cannot set the transfer fee sender override

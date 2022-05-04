@@ -83,16 +83,38 @@ abstract contract Entity is Auth {
     }
 
     /**
-     * @notice Receives a donated amount of base tokens to be added to the entity's balance.
+     * @notice Receives a donated amount of base tokens to be added to the entity's balance. Transfers default fee to treasury.
      * @param _amount Amount donated in base token.
      * @dev Reverts if the donation fee percentage is larger than 100% (equal to 1e4 when represented as a zoc).
      * @dev Reverts if the entity is inactive or if the token transfer fails.
      */
     function donate(uint256 _amount) external {
+        uint32 _feeMultiplier = registry.getDonationFee(this);
+        _donateWithFeeMultiplier(_amount, _feeMultiplier);
+    }
+
+    /**
+     * @notice Receives a donated amount of base tokens to be added to the entity's balance. Transfers default or overridden fee to treasury.
+     * @param _amount Amount donated in base token.
+     * @dev Reverts if the donation fee percentage is larger than 100% (equal to 1e4 when represented as a zoc).
+     * @dev Reverts if the entity is inactive or if the token transfer fails.
+     */
+    function donateWithOverrides(uint256 _amount) external {
+        uint32 _feeMultiplier = registry.getDonationFeeWithOverrides(this);
+        _donateWithFeeMultiplier(_amount, _feeMultiplier);
+    }
+
+    /**
+     * @notice Receives a donated amount of base tokens to be added to the entity's balance. Transfers fee calculated by fee multiplier to treasury.
+     * @param _amount Amount donated in base token.
+     * @param _feeMultiplier Value indicating the percentage of the Endaoment donation fee to go to the Endaoment treasury.
+     * @dev Reverts if the donation fee percentage is larger than 100% (equal to 1e4 when represented as a zoc).
+     * @dev Reverts if the entity is inactive or if the token transfer fails.
+     */
+    function _donateWithFeeMultiplier(uint256 _amount, uint32 _feeMultiplier) internal {
         if (!registry.isActiveEntity(this)) revert EntityInactive();
         uint256 _fee;
         uint256 _netAmount;
-        uint256 _feeMultiplier = registry.getDonationFee(this);
         if (_feeMultiplier > Math.ZOC) revert InvalidAction();
         unchecked {
             // unchecked as no possibility of overflow with baseToken precision
@@ -112,7 +134,7 @@ abstract contract Entity is Auth {
     }
 
     /**
-     * @notice Transfers an amount of base tokens from one entity to another. Transfers fee to treasury.
+     * @notice Transfers an amount of base tokens from one entity to another. Transfers default fee to treasury.
      * @param _to The entity to receive the tokens.
      * @param _amount Contains the amount being donated (denominated in the base token's units).
      * @dev Reverts if the entity is inactive or if the token transfer fails.
@@ -120,11 +142,37 @@ abstract contract Entity is Auth {
      * @dev Reverts with `Unauthorized` if the `msg.sender` is not the entity manager or a privileged role.
      */
     function transfer(Entity _to, uint256 _amount) requiresManager external {
+        uint32 _feeMultiplier = registry.getTransferFee(this, _to);
+        _transferWithFeeMultiplier(_to, _amount, _feeMultiplier);
+    }
+
+    /**
+     * @notice Transfers an amount of base tokens from one entity to another. Transfers default or overridden fee to treasury.
+     * @param _to The entity to receive the tokens.
+     * @param _amount Contains the amount being donated (denominated in the base token's units).
+     * @dev Reverts if the entity is inactive or if the token transfer fails.
+     * @dev Reverts if the transfer fee percentage is larger than 100% (equal to 1e4 when represented as a zoc).
+     * @dev Reverts with `Unauthorized` if the `msg.sender` is not the entity manager or a privileged role.
+     */
+    function transferWithOverrides(Entity _to, uint256 _amount) requiresManager external {
+        uint32 _feeMultiplier = registry.getTransferFeeWithOverrides(this, _to);
+        _transferWithFeeMultiplier(_to, _amount, _feeMultiplier);
+    }
+
+    /**
+     * @notice Transfers an amount of base tokens from one entity to another. Transfers fee calculated by fee multiplier to treasury.
+     * @param _to The entity to receive the tokens.
+     * @param _amount Contains the amount being donated (denominated in the base token's units).
+     * @param _feeMultiplier Value indicating the percentage of the Endaoment donation fee to go to the Endaoment treasury.
+     * @dev Reverts if the entity is inactive or if the token transfer fails.
+     * @dev Reverts if the transfer fee percentage is larger than 100% (equal to 1e4 when represented as a zoc).
+     * @dev Reverts with `Unauthorized` if the `msg.sender` is not the entity manager or a privileged role.
+     */
+    function _transferWithFeeMultiplier(Entity _to, uint256 _amount, uint32 _feeMultiplier) internal {
         if (!registry.isActiveEntity(this)) revert EntityInactive();
         if (balance < _amount) revert InsufficientFunds();
         uint256 _fee;
         uint256 _netAmount;
-        uint256 _feeMultiplier = registry.getTransferFee(this, _to);
         if (_feeMultiplier > Math.ZOC) revert InvalidAction();
         unchecked {
             // unchecked as no possibility of underflow with baseToken precision

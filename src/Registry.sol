@@ -140,15 +140,36 @@ contract Registry is RolesAuthority {
     }
 
     /**
+     * @notice Gets default donation fee pct (as a zoc) for an Entity.
+     * @param _entity The receiving entity of the donation for which the fee is being fetched.
+     * @return uint32 The default donation fee for the entity's type.
+     * @dev Makes use of _parseFeeWithFlip, so if no default exists, "max" will be returned.
+     */
+    function getDonationFee(Entity _entity) external view returns (uint32) {
+       return _parseFeeWithFlip(defaultDonationFee[_entity.entityType()]);
+    }
+
+    /**
      * @notice Gets lowest possible donation fee pct (as a zoc) for an Entity, among default and override.
      * @param _entity The receiving entity of the donation for which the fee is being fetched.
      * @return uint32 The minimum of the default donation fee and the receiver's fee override.
      * @dev Makes use of _parseFeeWithFlip, so if no default or override exists, "max" will be returned.
      */
-    function getDonationFee(Entity _entity) external view returns (uint32) {
+    function getDonationFeeWithOverrides(Entity _entity) external view returns (uint32) {
         uint32 _default = _parseFeeWithFlip(defaultDonationFee[_entity.entityType()]);
         uint32 _receiverOverride = _parseFeeWithFlip(donationFeeReceiverOverride[_entity]);
         return _receiverOverride < _default ? _receiverOverride : _default;
+    }
+
+    /**
+     * @notice Gets default transfer fee pct (as a zoc) between sender & receiver Entities.
+     * @param _sender The sending entity of the transfer for which the fee is being fetched.
+     * @param _receiver The receiving entity of the transfer for which the fee is being fetched.
+     * @return uint32 The default transfer fee.
+     * @dev Makes use of _parseFeeWithFlip, so if no default exists, "uint32 max" will be returned.
+     */
+    function getTransferFee(Entity _sender, Entity _receiver) external view returns (uint32) {
+        return _parseFeeWithFlip(defaultTransferFee[_sender.entityType()][_receiver.entityType()]);
     }
 
     /**
@@ -158,7 +179,7 @@ contract Registry is RolesAuthority {
      * @return uint32 The minimum of the default transfer fee, and sender and receiver overrides.
      * @dev Makes use of _parseFeeWithFlip, so if no default or overrides exist, "uint32 max" will be returned.
      */
-    function getTransferFee(Entity _sender, Entity _receiver) external view returns (uint32) {
+    function getTransferFeeWithOverrides(Entity _sender, Entity _receiver) external view returns (uint32) {
         uint32 _default = _parseFeeWithFlip(defaultTransferFee[_sender.entityType()][_receiver.entityType()]);
         uint32 _senderOverride = _parseFeeWithFlip(transferFeeSenderOverride[_sender][_receiver.entityType()]);
         uint32 _receiverOverride = _parseFeeWithFlip(transferFeeReceiverOverride[_sender.entityType()][_receiver]);

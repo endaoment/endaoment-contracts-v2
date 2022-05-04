@@ -49,6 +49,7 @@ abstract contract EntityDonateTransferTest is DeployTest {
     Entity entity;
     Entity receivingEntity;
     uint8 testEntityType;
+    uint32 internal constant onePercentZoc = 100;
 
     event EntityDonationReceived(address indexed from, address indexed to, uint256 amount, uint256 fee);
     event EntityFundsTransferred(address indexed from, address indexed to, uint256 amountReceived, uint256 amountFee);
@@ -67,18 +68,14 @@ abstract contract EntityDonateTransferTest is DeployTest {
         return _receivingType;
     }
 
-    // local helper function to convert a percent value to a zoc value
-    function _percentToZoc(uint256 _percentValue) internal returns (uint32) {
-        return uint32(_percentValue * Math.ZOC) / 100;
-    }
-
     // Test a normal donation to an entity from a donor.
     function testFuzz_DonateSuccess(address _donor, uint256 _donationAmount, uint256 _feePercent) public {
         _donationAmount = bound(_donationAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
         vm.assume(_donor != treasury);
+        vm.assume(_donor != address(entity));
         _feePercent = bound(_feePercent, 0, Math.ZOC);
         vm.prank(board);
-        // set the default donation fee to some percentage between 1 and 5 percent
+        // set the default donation fee to some percentage between 0 and 100 percent
         globalTestRegistry.setDefaultDonationFee(testEntityType, uint32(_feePercent));
         ERC20 _baseToken = globalTestRegistry.baseToken();
         vm.prank(_donor);
@@ -90,6 +87,34 @@ abstract contract EntityDonateTransferTest is DeployTest {
         deal(address(_baseToken), _donor, _donationAmount);
         vm.prank(_donor);
         entity.donate(_donationAmount);
+        assertEq(_baseToken.balanceOf(_donor), 0);
+        assertEq(_baseToken.balanceOf(address(entity)), _amountReceived);
+        assertEq(entity.balance(), _amountReceived);
+        assertEq(_baseToken.balanceOf(treasury), _amountFee);
+    }
+
+    // Test a donation with overrides to an entity from a donor.
+    function testFuzz_DonateWithOverridesSuccess(address _donor, uint256 _donationAmount, uint256 _feePercent) public {
+        _donationAmount = bound(_donationAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        vm.assume(_donor != treasury);
+        vm.assume(_donor != address(entity));
+        _feePercent = bound(_feePercent, onePercentZoc, Math.ZOC);
+        vm.startPrank(board);
+        // set the default donation fee to some percentage between 1 and 100 percent
+        globalTestRegistry.setDefaultDonationFee(testEntityType, uint32(_feePercent));
+        // set the donation receiver override fee to one percent less than the default fee percentage
+        globalTestRegistry.setDonationFeeReceiverOverride(entity, uint32(_feePercent - onePercentZoc));
+        vm.stopPrank();
+        ERC20 _baseToken = globalTestRegistry.baseToken();
+        vm.prank(_donor);
+        _baseToken.approve(address(entity), _donationAmount);
+        uint256 _amountFee = Math.zocmul(_donationAmount, _feePercent - onePercentZoc);
+        uint256 _amountReceived = _donationAmount - _amountFee;
+        vm.expectEmit(true, true, false, true);
+        emit EntityDonationReceived(_donor, address(entity), _donationAmount, _amountFee);
+        deal(address(_baseToken), _donor, _donationAmount);
+        vm.prank(_donor);
+        entity.donateWithOverrides(_donationAmount);
         assertEq(_baseToken.balanceOf(_donor), 0);
         assertEq(_baseToken.balanceOf(address(entity)), _amountReceived);
         assertEq(entity.balance(), _amountReceived);
@@ -115,10 +140,29 @@ abstract contract EntityDonateTransferTest is DeployTest {
         entity.donate(_donationAmount);
     }
 
+    // Test that a donation with fee overrides to an entity that has donations disallowed via default donation fee fails.
+    function testFuzz_DonateWithOverridesFailInvalidAction(address _donor, uint256 _donationAmount) public {
+        vm.prank(board);
+        // disallow donations to the entityType by setting the default donation fee to max
+        globalTestRegistry.setDefaultDonationFee(testEntityType, type(uint32).max);
+        vm.expectRevert(InvalidAction.selector);
+        vm.prank(_donor);
+        entity.donateWithOverrides(_donationAmount);
+    }
+
+    // Test that a donation with fee overrides to an inactive Entity fails.
+    function testFuzz_DonateWithOverridesFailInactive(address _donor, uint256 _donationAmount) public {
+        vm.prank(board);
+        globalTestRegistry.setEntityStatus(entity, false);
+        vm.expectRevert(abi.encodeWithSelector(EntityInactive.selector));
+        vm.prank(_donor);
+        entity.donateWithOverrides(_donationAmount);
+    }
+
     // Test a valid transfer between 2 entities
     function testFuzz_TransferSuccess(address _manager, uint256 _amount, uint256 _feePercent, address _receivingManager, uint8 _receivingEntityTypeIndex) public {
         _amount = bound(_amount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
-        _feePercent = bound(_feePercent, 0, 5);
+        _feePercent = bound(_feePercent, 0, Math.ZOC);
         // get the receiving entity type from the fuzzed parameter
         uint8 _receivingType = _deployEntity(_receivingEntityTypeIndex, _receivingManager);
         // preset the requested amount of basetokens into the entity
@@ -126,19 +170,85 @@ abstract contract EntityDonateTransferTest is DeployTest {
         ERC20 _baseToken = globalTestRegistry.baseToken();
         vm.prank(_manager);
         _baseToken.approve(address(entity), _amount);
-        // set the default transfer fee between the 2 entity types to some percentage between 1 and 5 percent
+        // set the default transfer fee between the 2 entity types to some percentage between 0 and 100 percent
         vm.startPrank(board);
-        globalTestRegistry.setDefaultTransferFee(testEntityType, _receivingType, _percentToZoc(_feePercent));
+        globalTestRegistry.setDefaultTransferFee(testEntityType, _receivingType, uint32(_feePercent));
         entity.setManager(_manager);
         globalTestRegistry.setEntityStatus(entity, true);
         globalTestRegistry.setEntityStatus(receivingEntity, true);
         vm.stopPrank();
-        uint256 _amountFee = Math.zocmul(_amount, _percentToZoc(_feePercent));
+        uint256 _amountFee = Math.zocmul(_amount, _feePercent);
         uint256 _amountReceived = _amount - _amountFee;
         vm.expectEmit(true, true, false, true);
         emit EntityFundsTransferred(address(entity), address(receivingEntity), _amount, _amountFee);
         vm.prank(_manager);
         entity.transfer(receivingEntity, _amount);
+        assertEq(_baseToken.balanceOf(address(entity)), 0);
+        assertEq(entity.balance(), 0);
+        assertEq(_baseToken.balanceOf(address(receivingEntity)), _amountReceived);
+        assertEq(receivingEntity.balance(), _amountReceived);
+        assertEq(_baseToken.balanceOf(treasury), _amountFee);
+    }
+
+    // Test a valid transfer with sender override between 2 entities
+    function testFuzz_TransferWithSenderOverrideSuccess(address _manager, uint256 _amount, uint256 _feePercent, address _receivingManager, uint8 _receivingEntityTypeIndex) public {
+        _amount = bound(_amount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _feePercent = bound(_feePercent, onePercentZoc, Math.ZOC);
+        // get the receiving entity type from the fuzzed parameter
+        uint8 _receivingType = _deployEntity(_receivingEntityTypeIndex, _receivingManager);
+        // preset the requested amount of basetokens into the entity
+        _setEntityBalance(entity, _amount);
+        ERC20 _baseToken = globalTestRegistry.baseToken();
+        vm.prank(_manager);
+        _baseToken.approve(address(entity), _amount);
+        vm.startPrank(board);
+        // set the default transfer fee between the 2 entity types to some percentage between 1 and 100 percent
+        globalTestRegistry.setDefaultTransferFee(testEntityType, _receivingType, uint32(_feePercent));
+        // set the sender override fee for the transfer to one less that the default transfer fee
+        globalTestRegistry.setTransferFeeSenderOverride(entity, _receivingType, uint32(_feePercent - onePercentZoc));
+        entity.setManager(_manager);
+        globalTestRegistry.setEntityStatus(entity, true);
+        globalTestRegistry.setEntityStatus(receivingEntity, true);
+        vm.stopPrank();
+        uint256 _amountFee = Math.zocmul(_amount, _feePercent - onePercentZoc);
+        uint256 _amountReceived = _amount - _amountFee;
+        vm.expectEmit(true, true, false, true);
+        emit EntityFundsTransferred(address(entity), address(receivingEntity), _amount, _amountFee);
+        vm.prank(_manager);
+        entity.transferWithOverrides(receivingEntity, _amount);
+        assertEq(_baseToken.balanceOf(address(entity)), 0);
+        assertEq(entity.balance(), 0);
+        assertEq(_baseToken.balanceOf(address(receivingEntity)), _amountReceived);
+        assertEq(receivingEntity.balance(), _amountReceived);
+        assertEq(_baseToken.balanceOf(treasury), _amountFee);
+    }
+
+    // Test a valid transfer with receiver override between 2 entities
+    function testFuzz_TransferWithReceiverOverrideSuccess(address _manager, uint256 _amount, uint256 _feePercent, address _receivingManager, uint8 _receivingEntityTypeIndex) public {
+        _amount = bound(_amount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _feePercent = bound(_feePercent, onePercentZoc, Math.ZOC);
+        // get the receiving entity type from the fuzzed parameter
+        uint8 _receivingType = _deployEntity(_receivingEntityTypeIndex, _receivingManager);
+        // preset the requested amount of basetokens into the entity
+        _setEntityBalance(entity, _amount);
+        ERC20 _baseToken = globalTestRegistry.baseToken();
+        vm.prank(_manager);
+        _baseToken.approve(address(entity), _amount);
+        vm.startPrank(board);
+        // set the default transfer fee between the 2 entity types to some percentage between 1 and 100 percent
+        globalTestRegistry.setDefaultTransferFee(testEntityType, _receivingType, uint32(_feePercent));
+        // set the receiver override fee for the transfer to one less that the default transfer fee
+        globalTestRegistry.setTransferFeeReceiverOverride(testEntityType, receivingEntity, uint32(_feePercent - onePercentZoc));
+        entity.setManager(_manager);
+        globalTestRegistry.setEntityStatus(entity, true);
+        globalTestRegistry.setEntityStatus(receivingEntity, true);
+        vm.stopPrank();
+        uint256 _amountFee = Math.zocmul(_amount, _feePercent - onePercentZoc);
+        uint256 _amountReceived = _amount - _amountFee;
+        vm.expectEmit(true, true, false, true);
+        emit EntityFundsTransferred(address(entity), address(receivingEntity), _amount, _amountFee);
+        vm.prank(_manager);
+        entity.transferWithOverrides(receivingEntity, _amount);
         assertEq(_baseToken.balanceOf(address(entity)), 0);
         assertEq(entity.balance(), 0);
         assertEq(_baseToken.balanceOf(address(receivingEntity)), _amountReceived);
@@ -167,7 +277,7 @@ abstract contract EntityDonateTransferTest is DeployTest {
         uint8 _receivingType = _deployEntity(_receivingEntityTypeIndex, _receivingManager);
         vm.startPrank(board);
         entity.setManager(_manager);
-        globalTestRegistry.setDefaultTransferFee(testEntityType, _receivingType, _percentToZoc(1));
+        globalTestRegistry.setDefaultTransferFee(testEntityType, _receivingType, onePercentZoc);
         globalTestRegistry.setEntityStatus(entity, false);
         globalTestRegistry.setEntityStatus(receivingEntity, true);
         vm.stopPrank();
@@ -185,7 +295,7 @@ abstract contract EntityDonateTransferTest is DeployTest {
         _setEntityBalance(entity, 10);
         vm.startPrank(board);
         entity.setManager(_manager);
-        globalTestRegistry.setDefaultTransferFee(testEntityType, _receivingType, _percentToZoc(1));
+        globalTestRegistry.setDefaultTransferFee(testEntityType, _receivingType, onePercentZoc);
         globalTestRegistry.setEntityStatus(entity, true);
         globalTestRegistry.setEntityStatus(receivingEntity, true);
         vm.stopPrank();
@@ -199,13 +309,75 @@ abstract contract EntityDonateTransferTest is DeployTest {
         uint8 _receivingType = _deployEntity(_receivingEntityTypeIndex, _receivingManager);
         vm.startPrank(board);
         entity.setManager(_manager);
-        globalTestRegistry.setDefaultTransferFee(testEntityType, _receivingType, _percentToZoc(1));
+        globalTestRegistry.setDefaultTransferFee(testEntityType, _receivingType, onePercentZoc);
         globalTestRegistry.setEntityStatus(entity, true);
         globalTestRegistry.setEntityStatus(receivingEntity, true);
         vm.stopPrank();
         vm.prank(_manager);
         vm.expectRevert(abi.encodeWithSelector(InsufficientFunds.selector));
         entity.transfer(receivingEntity, 1);
+    }
+
+    // Test that a transfer with overrides fails when the default transfer fee between the 2 entities has been set to disallow it.
+    function testFuzz_TransferWithOverridesFailInvalidAction(address _manager, address _receivingManager, uint8 _receivingEntityTypeIndex) public {
+        uint8 _receivingType = _deployEntity(_receivingEntityTypeIndex, _receivingManager);
+        _setEntityBalance(entity, 10);
+        vm.startPrank(board);
+        // disallow donations to the fund by setting the transfer donation fee to max for the entity types
+        globalTestRegistry.setDefaultTransferFee(testEntityType, _receivingType, type(uint32).max);
+        entity.setManager(_manager);
+        globalTestRegistry.setEntityStatus(entity, true);
+        globalTestRegistry.setEntityStatus(receivingEntity, true);
+        vm.stopPrank();
+        vm.expectRevert(InvalidAction.selector);
+        vm.prank(_manager);
+        entity.transferWithOverrides(receivingEntity, 1);
+    }
+
+    // Test that a transfer with overrides fails from an inactive Entity
+    function testFuzz_TransferWithOverridesFailInactive(address _manager, address _receivingManager, uint8 _receivingEntityTypeIndex) public {
+        uint8 _receivingType = _deployEntity(_receivingEntityTypeIndex, _receivingManager);
+        vm.startPrank(board);
+        entity.setManager(_manager);
+        globalTestRegistry.setDefaultTransferFee(testEntityType, _receivingType, onePercentZoc);
+        globalTestRegistry.setEntityStatus(entity, false);
+        globalTestRegistry.setEntityStatus(receivingEntity, true);
+        vm.stopPrank();
+        vm.prank(_manager);
+        vm.expectRevert(abi.encodeWithSelector(EntityInactive.selector));
+        entity.transferWithOverrides(receivingEntity, 1);
+    }
+
+    // Test that a transfer with overrides fails when the caller is not authorized
+    function testFuzz_TransferWithOverridesFailUnauthorized(address _caller, address _manager, address _receivingManager, uint8 _receivingEntityTypeIndex) public {
+        vm.assume(_caller != _manager);
+        vm.assume(_caller != board);
+        vm.assume(_caller != capitalCommittee);
+        uint8 _receivingType = _deployEntity(_receivingEntityTypeIndex, _receivingManager);
+        _setEntityBalance(entity, 10);
+        vm.startPrank(board);
+        entity.setManager(_manager);
+        globalTestRegistry.setDefaultTransferFee(testEntityType, _receivingType, onePercentZoc);
+        globalTestRegistry.setEntityStatus(entity, true);
+        globalTestRegistry.setEntityStatus(receivingEntity, true);
+        vm.stopPrank();
+        vm.expectRevert(abi.encodeWithSelector(Unauthorized.selector));
+        vm.prank(_caller);
+        entity.transferWithOverrides(receivingEntity, 1);
+    }
+
+    // Test that a transfer with overrides fails when the source entity of the transfer has insufficient funds
+    function testFuzz_TransferWithOverridesFailInsufficientFunds(address _manager, address _receivingManager, uint8 _receivingEntityTypeIndex) public {
+        uint8 _receivingType = _deployEntity(_receivingEntityTypeIndex, _receivingManager);
+        vm.startPrank(board);
+        entity.setManager(_manager);
+        globalTestRegistry.setDefaultTransferFee(testEntityType, _receivingType, onePercentZoc);
+        globalTestRegistry.setEntityStatus(entity, true);
+        globalTestRegistry.setEntityStatus(receivingEntity, true);
+        vm.stopPrank();
+        vm.prank(_manager);
+        vm.expectRevert(abi.encodeWithSelector(InsufficientFunds.selector));
+        entity.transferWithOverrides(receivingEntity, 1);
     }
 
     // Test than the receiveTransfer function fails if not called by another entity.
