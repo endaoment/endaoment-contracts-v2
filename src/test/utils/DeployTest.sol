@@ -20,6 +20,10 @@ contract DeployTest is DeployAll, DSTestPlus {
   uint256 public constant MIN_DONATION_TRANSFER_AMOUNT = 5;
   uint256 public constant MAX_DONATION_TRANSFER_AMOUNT = 10000000;
 
+  // Entity special targets for auth permissions
+  address orgTarget = address(bytes20(bytes.concat("entity", bytes1(uint8(1)))));
+  address fundTarget = address(bytes20(bytes.concat("entity", bytes1(uint8(2)))));
+
   // Registry operations
   bytes4 public setEntityStatus = bytes4(keccak256("setEntityStatus(address,bool)"));
   bytes4 public setDefaultDonationFee = bytes4(keccak256("setDefaultDonationFee(uint8,uint32)"));
@@ -33,6 +37,16 @@ contract DeployTest is DeployAll, DSTestPlus {
   bytes4 public setOrgId = bytes4(keccak256("setOrgId(bytes32)"));
   bytes4 public setManager = bytes4(keccak256("setManager(address)"));
 
+  // NDAO operations
+  bytes4 public ndaoMint = bytes4(keccak256("mint(address,uint256)"));
+
+  // NVT operations
+  bytes4 public nvtVestLock = bytes4(keccak256("vestLock(address,uint256,uint256)"));
+  bytes4 public nvtClawback = bytes4(keccak256("clawback(address)"));
+
+  // Rolling Merkle Distributor operations
+  bytes4 public rollover = bytes4(keccak256("rollover(bytes32,uint256)"));
+
   // Uni v3 swap wrapper
   address public uniV3SwapRouter = 0xE592427A0AEce92De3Edee1F18E0157C05861564;
   ISwapWrapper uniV3SwapWrapper;
@@ -45,14 +59,22 @@ contract DeployTest is DeployAll, DSTestPlus {
     vm.label(user2, "user1");
     vm.label(treasury, "treasury");
     vm.label(capitalCommittee, "capital committee");
+    vm.label(tokenTrust, "token trust");
     vm.label(uniV3SwapRouter, "uniV3 swap router");
+    vm.label(address(ndao), "NDAO");
+    vm.label(address(nvt), "NVT");
+    vm.label(address(distributor), "distributor");
+    vm.label(address(baseDistributor), "base distributor");
 
     vm.startPrank(board);
 
     globalTestRegistry.setFactoryApproval(address(orgFundFactory), true);
 
-    // role 2: P_02	Transfer balances between entitys
-    globalTestRegistry.setRoleCapability(2, entityPerms, entityTransfer, true);
+    // TODO: Give board & capital committee mint capability (Use functional requirements doc)
+
+    // role 2: P_02	Transfer balances between entities
+    globalTestRegistry.setRoleCapability(2, orgTarget, entityTransfer, true);
+    globalTestRegistry.setRoleCapability(2, fundTarget, entityTransfer, true);
     globalTestRegistry.setUserRole(capitalCommittee, 2, true);
 
     // role 5: P_05	Enable/disable entities
@@ -60,11 +82,12 @@ contract DeployTest is DeployAll, DSTestPlus {
     globalTestRegistry.setUserRole(capitalCommittee, 5, true);
 
     // role 6: P_06	Change an org's TaxID
-    globalTestRegistry.setRoleCapability(6, entityPerms, setOrgId, true);
+    globalTestRegistry.setRoleCapability(6, orgTarget, setOrgId, true);
     globalTestRegistry.setUserRole(capitalCommittee, 6, true);
 
     // role 7: P_07	Change entity's manager address
-    globalTestRegistry.setRoleCapability(7, entityPerms, setManager, true);
+    globalTestRegistry.setRoleCapability(7, orgTarget, setManager, true);
+    globalTestRegistry.setRoleCapability(7, fundTarget, setManager, true);
     globalTestRegistry.setUserRole(capitalCommittee, 7, true);
 
     // role 8: P_08 Change entity's fees
@@ -77,6 +100,23 @@ contract DeployTest is DeployAll, DSTestPlus {
     globalTestRegistry.setRoleCapability(11, address(globalTestRegistry), setTransferFeeSenderOverride, true);
     globalTestRegistry.setRoleCapability(11, address(globalTestRegistry), setTransferFeeReceiverOverride, true);
     globalTestRegistry.setUserRole(programCommittee, 11, true);
+
+    // role 17: P_17 NDAO Rolling Merkle Distributor Rollover
+    globalTestRegistry.setRoleCapability(17, address(distributor), rollover, true);
+    globalTestRegistry.setUserRole(tokenTrust, 17, true);
+
+    // role 18: P_18 Base Token Rolling Merkle Distributor Rollover
+    globalTestRegistry.setRoleCapability(18, address(baseDistributor), rollover, true);
+    globalTestRegistry.setUserRole(tokenTrust, 18, true);
+
+    // role 22: P_22 Mint NDAO
+    globalTestRegistry.setRoleCapability(22, address(ndao), ndaoMint, true);
+    globalTestRegistry.setUserRole(capitalCommittee, 22, true);
+
+    // role 23: P_23 NVT Vesting & Clawback
+    globalTestRegistry.setRoleCapability(23, address(nvt), nvtVestLock, true);
+    globalTestRegistry.setRoleCapability(23, address(nvt), nvtClawback, true);
+    globalTestRegistry.setUserRole(capitalCommittee, 23, true);
 
     vm.stopPrank();
   }

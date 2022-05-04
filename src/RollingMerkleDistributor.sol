@@ -3,6 +3,8 @@ pragma solidity ^0.8.12;
 
 import { IERC20 } from "openzeppelin-contracts/contracts/interfaces/IERC20.sol";
 import { MerkleProof } from "openzeppelin-contracts/contracts/utils/cryptography/MerkleProof.sol";
+import { EndaomentAuth } from "./lib/auth/EndaomentAuth.sol";
+import { RolesAuthority } from "./lib/auth/authorities/RolesAuthority.sol";
 
 /**
  * @notice Defines the data, error, and event types used by the RollingMerkleDistributor contract.
@@ -17,23 +19,17 @@ abstract contract RollingMerkleDistributorTypes {
         bytes32[] merkleProof; // The Merkle proof data.
     }
 
-    /// @notice Emitted when the admin rolls over the Merkle root and claim window. Also emitted on deploy with
-    /// initial root and claim window.
+    /// @notice Emitted when an authorized account rolls over the Merkle root and claim window. Also emitted on
+    /// deploy with initial root and claim window.
     event MerkleRootRolledOver(bytes32 indexed merkleRoot, uint256 windowEnd);
-
-    /// @notice Emitted when the admin account is updated.
-    event AdminUpdated(address indexed oldAmin, address indexed newAdmin);
 
     /// @notice Updated when an account completes a proof based claim.
     event Claimed(uint256 indexed window, uint256 index, address indexed claimant, uint256 amount);
 
-    /// @notice Thrown when a non-admin account calls an admin-only method.
-    error Unauthorized();
-
-    /// @notice Thrown if the admin attempts to rollover while the current claim window is still open.
+    /// @notice Thrown if  there is an attempt to rollover while the current claim window is still open.
     error PriorWindowStillOpen();
 
-    /// @notice Thrown if the admin attempts to define a claim window period that is 0 seconds, or too long.
+    /// @notice Thrown if there is an attempt to define a claim window period that is 0 seconds, or too long.
     error InvalidPeriod();
 
     /// @notice Thrown if a claimant attempts to claim funds that were already claimed.
@@ -47,22 +43,19 @@ abstract contract RollingMerkleDistributorTypes {
 }
 
 /**
- * @notice A rolling Merkle distributor. At the end of ever claim window, a privileged admin user can deploy
- * a new root (and window) to distribute more funds. The admin must also supply the funds to be distributed by the
- * the contract in a separate transaction. The intention is for the admin to rollover unclaimed funds from the
+ * @notice A rolling Merkle distributor. At the end of ever claim window, a privileged account can deploy
+ * a new root (and window) to distribute more funds. The stakeholder must also supply the funds to be distributed by
+ * the contract in a separate transaction. The intention is for the stakeholder to rollover unclaimed funds from the
  * previous window into the next Merkle root, so users can claim anytime and never "miss" their chance to do so. This
- * is an entirely trust based process. The admin can leave a user's fund out of the root, or deploy a root that allows
- * them alone to reclaim all the funds. This is by design.
+ * is an entirely trust based process. Privileged accounts can leave a user's fund out of the root, or deploy a root that
+ * allows them alone to reclaim all the funds. This is by design.
  * @dev Based on the
  * [Uniswap merkle distributor](https://github.com/Uniswap/merkle-distributor/blob/master/contracts/MerkleDistributor.sol).
  */
-contract RollingMerkleDistributor is RollingMerkleDistributorTypes {
+contract RollingMerkleDistributor is RollingMerkleDistributorTypes, EndaomentAuth {
 
     /// @notice The ERC20 token that will be distributed by this contract.
     IERC20 public immutable token;
-
-    /// @notice The privileged account that can rollover the root and claim window.
-    address public admin;
 
     /// @notice The current Merkle root which claimants must provide a proof against.
     bytes32 public merkleRoot;
@@ -70,7 +63,7 @@ contract RollingMerkleDistributor is RollingMerkleDistributorTypes {
     /// @notice A Unix timestamp denoting the last second of the current claim window.
     uint256 public windowEnd;
 
-    /// @notice The maximum length of a claim window that an admin can define at rollover. Does *not* apply to the
+    /// @notice The maximum length of a claim window that can be defined at rollover. Does *not* apply to the
     /// length of the claim window for initial distribution, defined at deployment.
     uint256 public constant MAX_PERIOD = 30 days;
 
@@ -83,11 +76,15 @@ contract RollingMerkleDistributor is RollingMerkleDistributorTypes {
      * failed transfers.
      * @param _initialRoot The Merkle root for the initial distribution.
      * @param _initialPeriod The length of time, in seconds, of the initial claim window.
-     * @param _admin The privileged account that can rollover the root and claim window.
+     * @param _authority The address of the authority which defines permissions for rollovers.
      */
-    constructor(IERC20 _token, bytes32 _initialRoot, uint256 _initialPeriod, address _admin) {
+    constructor(
+        IERC20 _token,
+        bytes32 _initialRoot,
+        uint256 _initialPeriod,
+        RolesAuthority _authority
+    ) EndaomentAuth(_authority, "") {
         token = _token;
-        admin = _admin;
 
         merkleRoot = _initialRoot;
         windowEnd = block.timestamp + _initialPeriod;
@@ -96,13 +93,12 @@ contract RollingMerkleDistributor is RollingMerkleDistributorTypes {
     }
 
     /**
-     * @notice Admin only method that sets a new Merkle root and defines a new claim window. Can only be called after
+     * @notice Privileged method that sets a new Merkle root and defines a new claim window. Can only be called after
      * the previous window has closed.
      * @param _newRoot The new Merkle root for this distribution.
      * @param _period The length of the new claim window in seconds. Must be less than MAX_PERIOD.
      */
-    function rollover(bytes32 _newRoot, uint256 _period) public {
-        if (msg.sender != admin) revert Unauthorized();
+    function rollover(bytes32 _newRoot, uint256 _period) public requiresAuth {
         if (windowEnd >= block.timestamp) revert PriorWindowStillOpen();
         if (_period == 0 || _period > MAX_PERIOD) revert InvalidPeriod();
 
@@ -113,16 +109,6 @@ contract RollingMerkleDistributor is RollingMerkleDistributorTypes {
         }
 
         emit MerkleRootRolledOver(merkleRoot , windowEnd);
-    }
-
-    /**
-     * @notice Update the admin account. Must be called by the current admin.
-     * @param _newAdmin The new admin account.
-     */
-    function updateAdmin(address _newAdmin) public {
-        if (msg.sender != admin) revert Unauthorized();
-        emit AdminUpdated(admin, _newAdmin);
-        admin = _newAdmin;
     }
 
     /**

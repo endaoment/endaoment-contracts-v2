@@ -3,9 +3,9 @@ pragma solidity ^0.8.12;
 import "solmate/tokens/ERC20.sol";
 import "solmate/utils/SafeTransferLib.sol";
 
-import { Registry, Unauthorized } from  "./Registry.sol";
+import { Registry } from  "./Registry.sol";
+import { EndaomentAuth } from "./lib/auth/EndaomentAuth.sol";
 import { Portfolio } from "./Portfolio.sol";
-import { Auth, Authority } from "./lib/auth/Auth.sol";
 import { Math } from "./lib/Math.sol";
 
 error EntityInactive();
@@ -17,7 +17,7 @@ error InvalidTransferAttempt();
 /**
  * @notice Entity contract inherited by Org and Fund contracts (and all future kinds of Entities).
  */
-abstract contract Entity is Auth {
+abstract contract Entity is EndaomentAuth {
     using Math for uint256;
     using SafeTransferLib for ERC20;
 
@@ -50,16 +50,6 @@ abstract contract Entity is Auth {
 
 
     /**
-     * @notice Modifier for methods that require auth and that the manager cannot access.
-     * @dev Overridden from Auth.sol. Reason: use custom error.
-     */
-    modifier requiresAuth override {
-        if(!isAuthorized(msg.sender, msg.sig)) revert Unauthorized();
-
-        _;
-    }
-
-    /**
      * @notice Modifier for methods that require auth and that the manager can access.
      * @dev Uses the same condition as `requiresAuth` but with added manager access.
      */
@@ -67,7 +57,7 @@ abstract contract Entity is Auth {
         if(msg.sender != manager && !isAuthorized(msg.sender, msg.sig)) revert Unauthorized();
         _;
     }
-    
+
     /// @notice Each entity will implement this function to allow a caller to interrogate what kind of entity it is.
     function entityType() public pure virtual returns (uint8);
 
@@ -75,7 +65,13 @@ abstract contract Entity is Auth {
      * @param _registry The registry to host the Entity.
      * @param _manager The address of the Entity's manager.
      */
-    constructor(Registry _registry, address _manager) Auth(address(0), _registry) {
+    constructor(
+        Registry _registry,
+        address _manager
+    ) EndaomentAuth(
+            _registry,
+            bytes20(bytes.concat("entity", bytes1(entityType())))
+    ) {
         registry = _registry;
         manager = _manager;
         baseToken = _registry.baseToken();
@@ -244,22 +240,4 @@ abstract contract Entity is Auth {
         emit EntityDeposit(address(_portfolio), _shares, _received);
         return _received;
     }
-
-    /**
-     * @dev We override Auth.sol:isAuthorized() in order to achieve the following:
-     * - Instead of asking this Entity about roles and such, ask the Registry.
-     *   - Reason: We want to manage all permissions in one place -- on the Registry.
-     * - Instead of passing `address(this)` to `auth.canCall`, we pass `address(bytes20("entity"))`
-     *   - Reason: We are meeting the requirement to scope permissions across all Entities together.
-     * - Instead of asking this Entity about its Auth `owner`, we ask the Registry.
-     *   - Reason: We want to manage `owner` in one place -- on the Registry.
-     */
-    function isAuthorized(address user, bytes4 functionSig) internal view override returns (bool) {
-        // Instead of asking this Entity about roles and capabilities, ask the Registry.
-        Authority auth = registry.authority();
-
-        // We make a couple small modifications to reframe auth in terms of Registry.
-        return (address(auth) != address(0) && auth.canCall(user, address(bytes20("entity")), functionSig)) || user == registry.owner();
-    }
-
 }

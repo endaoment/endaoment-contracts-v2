@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BSD 3-Claused
 pragma solidity ^0.8.12;
 import { MockSwapperTestHarness } from "./utils/MockSwapperTestHarness.sol";
-import { Registry, Unauthorized } from "../Registry.sol";
+import { Registry } from "../Registry.sol";
 import { Math } from "../lib/Math.sol";
 import { ERC20 } from "solmate/tokens/ERC20.sol";
 import { SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
@@ -24,9 +24,12 @@ contract SingleTokenPortfolioTest is MockSwapperTestHarness {
     event Deposit(address indexed sender, address indexed receiver, uint256 assets, uint256 shares);
     event Redemption(address indexed sender, address indexed receiver, uint256 assets, uint256 shares);
 
+    // Shadows EndaomentAuth
+    error Unauthorized();
+
     function setUp() public override {
       super.setUp();
-      
+
       // set donation fees to 0
       // although it would be easier to do this in DeployTest, it causes testFuzz_UnmappedDefaultDonationFee to fail
       vm.startPrank(board);
@@ -77,7 +80,7 @@ contract STPSetCap is SingleTokenPortfolioTest {
 
   function testFuzz_SetRedemptionFeeFailAuth(uint256 _cap) public {
     vm.prank(user1);
-    vm.expectRevert(Portfolio.Unauthorized.selector);
+    vm.expectRevert(Unauthorized.selector);
     portfolio.setRedemptionFee(_cap);
   }
 }

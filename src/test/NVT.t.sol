@@ -1,32 +1,27 @@
 // SPDX-License-Identifier: BSD 3-Claused
 pragma solidity ^0.8.12;
 
-import { DSTestPlus } from "./utils/DSTestPlus.sol";
+import { DeployTest } from "./utils/DeployTest.sol";
 import { NVT, NVTTypes, INDAO } from "../NVT.sol";
 import { NDAO } from "../NDAO.sol";
 
-contract NVTTest is NVTTypes, DSTestPlus {
-    NVT nvt;
-
-    NDAO ndao;
-    address admin = address(0xAD);
-
+contract NVTTest is NVTTypes, DeployTest {
     // In the Solmate ERC20 implementation, attempting to transfer tokens you don't have reverts w/ an overflow panic
     bytes ErrorNoNdaoTokensError = abi.encodeWithSignature("Panic(uint256)", 0x11);
+
+    // Shadows EndaomentAuth
+    error Unauthorized();
 
     // Choose a value well above anything reasonable for bounding fuzzed vesting periods.
     uint256 MAX_VESTING_PERIOD = 1000 * (365 days);
     // The period * amount must fit into a uint256 to avoid fuzzing overflows. In reality this would never happen.
     uint256 MAX_VESTING_AMOUNT = type(uint256).max / MAX_VESTING_PERIOD;
 
-    function setUp() public virtual {
-        vm.label(admin, "admin");
+    address[] public actors = [board, capitalCommittee];
 
-        ndao = new NDAO(admin);
-        nvt = new NVT(INDAO(address(ndao)));
-
-        vm.label(address(ndao), "NDAO");
-        vm.label(address(nvt), "NVT");
+    function getAuthorizedActor(uint256 _seed) public returns (address) {
+        uint256 _index = bound(_seed, 0, actors.length - 1);
+        return actors[_index];
     }
 
     function mintNdaoAndApproveNvt(address _holder, uint256 _amount) public {
@@ -36,7 +31,7 @@ contract NVTTest is NVTTypes, DSTestPlus {
             _holder != address(nvt)
         );
 
-        vm.prank(admin);
+        vm.prank(board);
         ndao.mint(_holder, _amount);
 
         vm.prank(_holder);
@@ -51,13 +46,14 @@ contract NVTTest is NVTTypes, DSTestPlus {
 
     function mintNdaoAndVest(address _vestee, uint256 _amount, uint256 _period) public {
         vm.assume(
-            _vestee != admin &&
+            _vestee != board &&
+            _vestee != capitalCommittee &&
             _vestee != address(0) &&
             _vestee != address(nvt)
         );
-        mintNdaoAndApproveNvt(admin, _amount);
+        mintNdaoAndApproveNvt(board, _amount);
 
-        vm.prank(admin);
+        vm.prank(board);
         nvt.vestLock(_vestee, _amount, _period);
     }
 
@@ -1046,19 +1042,25 @@ contract OffChainHelpers is NVTTest {
     }
 }
 
-// Testing the Admin ability to lock NDAO and create vesting NVT distributions.
+// Testing when authorized user can or cannot lock NDAO and create vesting NVT distributions.
 contract VestLock is NVTTest {
 
-    function testFuzz_AdminCanVestLock(address _vestee, uint256 _amount, uint256 _period) public {
+    function testFuzz_AuthorizedUserCanVestLock(
+        address _vestee,
+        uint256 _amount,
+        uint256 _period,
+        uint256 _seed
+    ) public {
+        address _actor = getAuthorizedActor(_seed);
         vm.assume(
-            _vestee != admin &&
+            _vestee != _actor &&
             _vestee != address(0)
         );
         _amount = bound(_amount, 0, MAX_VESTING_AMOUNT);
         _period = bound(_period, 1, MAX_VESTING_PERIOD);
-        mintNdaoAndApproveNvt(admin, _amount);
+        mintNdaoAndApproveNvt(_actor, _amount);
 
-        vm.prank(admin);
+        vm.prank(_actor);
         expectEvent_VestLocked(_vestee, _amount, _period);
         nvt.vestLock(_vestee, _amount, _period);
 
@@ -1072,7 +1074,7 @@ contract VestLock is NVTTest {
 
     function testFuzz_CannotVestLockForZeroSeconds(address _vestee, uint256 _amount) public {
         vm.expectRevert(InvalidVestingPeriod.selector);
-        vm.prank(admin);
+        vm.prank(board);
         nvt.vestLock(_vestee, _amount, 0);
     }
 
@@ -1084,7 +1086,7 @@ contract VestLock is NVTTest {
         uint256 _period2
     ) public {
         vm.assume(
-            _vestee != admin &&
+            _vestee != board &&
             _vestee != address(0)
         );
         _amount1 = bound(_amount1, 0, MAX_VESTING_AMOUNT);
@@ -1092,22 +1094,25 @@ contract VestLock is NVTTest {
         _period1 = bound(_period1, 1, MAX_VESTING_PERIOD);
         _period2 = bound(_period2, 1, MAX_VESTING_PERIOD);
 
-        mintNdaoAndApproveNvt(admin, _amount1 + _amount2);
+        mintNdaoAndApproveNvt(board, _amount1 + _amount2);
 
-        vm.startPrank(admin);
+        vm.startPrank(board);
         nvt.vestLock(_vestee, _amount1, _period1);
         vm.expectRevert(AccountAlreadyVesting.selector);
         nvt.vestLock(_vestee, _amount2, _period2);
         vm.stopPrank();
     }
 
-    function testFuzz_NonAdminCannotVestLock(
+    function testFuzz_NonAuthorizedCannotVestLock(
         address _nonAdmin,
         address _vestee,
         uint256 _amount,
         uint256 _period
     ) public {
-        vm.assume(_nonAdmin != admin);
+        vm.assume(
+            _nonAdmin != board &&
+            _nonAdmin != capitalCommittee
+        );
 
         vm.expectRevert(Unauthorized.selector);
         vm.prank(_nonAdmin);
@@ -1306,57 +1311,66 @@ contract UnlockVested is NVTTest {
     }
 }
 
-// Testing the ability of the admin to clawback non-vested NVT from a vestee.
+// Testing the ability of authorized accounts to clawback non-vested NVT from a vestee.
 contract Clawback is NVTTest {
 
-    function testFuzz_ClawbackAllImmediately(address _vestee, uint256 _amount, uint256 _period) public {
+    function testFuzz_ClawbackAllImmediately(address _vestee, uint256 _amount, uint256 _period, uint256 _seed) public {
+        address _actor = getAuthorizedActor(_seed);
         _amount = bound(_amount, 1, MAX_VESTING_AMOUNT);
         _period = bound(_period, 1, MAX_VESTING_PERIOD);
         mintNdaoAndVest(_vestee, _amount, _period);
 
-        vm.prank(admin);
+        vm.prank(_actor);
         expectEvent_ClawedBack(_vestee, _amount);
         nvt.clawback(_vestee);
 
         uint256 _vestDate = block.timestamp + _period;
         VestingSchedule memory _schedule = nvt.getVestingSchedule(_vestee);
 
-        assertEq(ndao.balanceOf(admin), _amount);
+        assertEq(ndao.balanceOf(_actor), _amount);
         assertEq(nvt.availableForVestUnlock(_vestee, _vestDate), 0);
         assertEq(_schedule.balance, 0);
         assertTrue(_schedule.wasClawedBack);
     }
 
-    function testFuzz_NothingToClawbackOnSecondCall(address _vestee, address _holder, uint256 _amount, uint256 _period) public {
+    function testFuzz_NothingToClawbackOnSecondCall(
+        address _vestee,
+        address _holder,
+        uint256 _amount,
+        uint256 _period,
+        uint256 _seed
+    ) public {
+        address _actor = getAuthorizedActor(_seed);
         vm.assume(_vestee != _holder);
         _amount = bound(_amount, 1, MAX_VESTING_AMOUNT / 2);
         _period = bound(_period, 1, MAX_VESTING_PERIOD);
         mintNdaoAndVest(_vestee, _amount, _period);
-        // Mint and lock some other ndao the admin could 'steal.'
+        // Mint and lock some other ndao the actor could 'steal.'
         mintNdaoAndVoteLock(_holder, _amount);
 
         // Clawback.
-        vm.prank(admin);
+        vm.prank(_actor);
         expectEvent_ClawedBack(_vestee, _amount);
         nvt.clawback(_vestee);
 
         uint256 _vestDate = block.timestamp + _period;
 
-        assertEq(ndao.balanceOf(admin), _amount);
+        assertEq(ndao.balanceOf(_actor), _amount);
         assertEq(nvt.availableForVestUnlock(_vestee, _vestDate), 0);
 
         // Try to clawback again.
-        vm.prank(admin);
+        vm.prank(_actor);
         expectEvent_ClawedBack(_vestee, 0);
         nvt.clawback(_vestee);
 
         // There is no change because there is nothing to clawback.
-        assertEq(ndao.balanceOf(admin), _amount);
+        assertEq(ndao.balanceOf(_actor), _amount);
         assertEq(ndao.balanceOf(address(nvt)), _amount);
         assertEq(nvt.availableForVestUnlock(_vestee, _vestDate), 0);
     }
 
-    function testFuzz_CannotClawbackVestedTokens(address _vestee, uint256 _amount) public {
+    function testFuzz_CannotClawbackVestedTokens(address _vestee, uint256 _amount, uint256 _seed) public {
+        address _actor = getAuthorizedActor(_seed);
         _amount = bound(_amount, 1, MAX_VESTING_AMOUNT);
         uint256 _period = 547 days; // ~1.5 years
         mintNdaoAndVest(_vestee, _amount, _period);
@@ -1368,11 +1382,11 @@ contract Clawback is NVTTest {
         uint256 _expectedClawback = _amount - _expectedVested;
 
         // Clawback unvested tokens, i.e 2/3rds
-        vm.prank(admin);
+        vm.prank(_actor);
         expectEvent_ClawedBack(_vestee, _expectedClawback);
         nvt.clawback(_vestee);
 
-        assertEq(ndao.balanceOf(admin), _expectedClawback);
+        assertEq(ndao.balanceOf(_actor), _expectedClawback);
         assertEq(nvt.availableForVestUnlock(_vestee, block.timestamp), _expectedVested);
 
         // Jump ahead another bit of time.
@@ -1389,7 +1403,8 @@ contract Clawback is NVTTest {
         assertEq(nvt.availableForVestUnlock(_vestee, block.timestamp), 0);
     }
 
-    function testFuzz_ClawbackAfterVestingAndPartialWithdraw(address _vestee, uint256 _amount) public {
+    function testFuzz_ClawbackAfterVestingAndPartialWithdraw(address _vestee, uint256 _amount, uint256 _seed) public {
+        address _actor = getAuthorizedActor(_seed);
         _amount = bound(_amount, 1, MAX_VESTING_AMOUNT);
         uint256 _period = 547 days; // ~1.5 years
         mintNdaoAndVest(_vestee, _amount, _period);
@@ -1405,14 +1420,14 @@ contract Clawback is NVTTest {
         assertEq(ndao.balanceOf(_vestee), _amount / 4);
 
         // Clawback unvested tokens, i.e. 2/3rds.
-        vm.prank(admin);
+        vm.prank(_actor);
         nvt.clawback(_vestee);
 
         uint256 _expectedVested = _amount / 3;
         uint256 _expectedClawback = _amount - _expectedVested;
         uint256 _expectedAvailable = _expectedVested - _amount / 4;
 
-        assertEq(ndao.balanceOf(admin), _expectedClawback);
+        assertEq(ndao.balanceOf(_actor), _expectedClawback);
         assertEq(nvt.availableForVestUnlock(_vestee, block.timestamp), _expectedAvailable);
         // At various points in the future the amount available is still the same.
         assertEq(nvt.availableForVestUnlock(_vestee, block.timestamp + _period / 2), _expectedAvailable);
@@ -1428,7 +1443,8 @@ contract Clawback is NVTTest {
         assertEq(nvt.availableForVestUnlock(_vestee, block.timestamp + _period), 0);
     }
 
-    function testFuzz_PartialWithdrawAfterClawback(address _vestee, uint256 _amount) public {
+    function testFuzz_PartialWithdrawAfterClawback(address _vestee, uint256 _amount, uint256 _seed) public {
+        address _actor = getAuthorizedActor(_seed);
         _amount = bound(_amount, 1, MAX_VESTING_AMOUNT);
         uint256 _period = 547 days; // ~1.5 years
         mintNdaoAndVest(_vestee, _amount, _period);
@@ -1437,13 +1453,13 @@ contract Clawback is NVTTest {
         skip(_period / 3);
 
         // Clawback unvested tokens, i.e. 2/3rds.
-        vm.prank(admin);
+        vm.prank(_actor);
         nvt.clawback(_vestee);
 
         uint256 _expectedVested = _amount / 3;
         uint256 _expectedClawback = _amount - _expectedVested;
 
-        assertEq(ndao.balanceOf(admin), _expectedClawback);
+        assertEq(ndao.balanceOf(_actor), _expectedClawback);
         assertEq(nvt.availableForVestUnlock(_vestee, block.timestamp), _expectedVested);
         // At various points in the future the amount available is still the same.
         assertEq(nvt.availableForVestUnlock(_vestee, block.timestamp + _period / 2), _expectedVested);
@@ -1471,7 +1487,10 @@ contract Clawback is NVTTest {
     }
 
     function testFuzz_NonAdminCannotCallClawback(address _nonAdmin, address _vestee) public {
-        vm.assume(_nonAdmin != admin);
+        vm.assume(
+            _nonAdmin != board &&
+            _nonAdmin != capitalCommittee
+        );
 
         vm.prank(_nonAdmin);
         vm.expectRevert(Unauthorized.selector);

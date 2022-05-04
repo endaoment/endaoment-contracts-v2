@@ -2,46 +2,25 @@
 pragma solidity ^0.8.12;
 
 import { ERC20 } from "solmate/tokens/ERC20.sol";
+import { EndaomentAuth } from "./lib/auth/EndaomentAuth.sol";
+import { RolesAuthority } from "./lib/auth/authorities/RolesAuthority.sol";
 
 /**
  * @notice The NDAO ERC20 token. It can be staked to receive NVT Governance tokens.
  */
-contract NDAO is ERC20 {
+contract NDAO is ERC20, EndaomentAuth {
 
-    /// @notice The privileged address which is able to mint more NDAO.
-    address public admin;
-
-    /// @notice Thrown when non-admin user attempts to mint NDAO.
-    error Unauthorized();
-
-    /// @notice Emitted when the admin is changed.
-    event AdminUpdated(address indexed oldAdmin, address indexed newAdmin);
-
-    /// @param _admin The admin address which will be able to mint more NDAO.
+    /// @param _authority The address of the authority which defines permissions for NDAO minting.
     constructor(
-        address _admin
-    ) ERC20("NDAO", "NDAO", 18) {
-        admin = _admin;
-        emit AdminUpdated(address(0), _admin);
-    }
+        RolesAuthority _authority
+    ) ERC20("NDAO", "NDAO", 18) EndaomentAuth(_authority, "") { }
 
     /**
      * @notice Mint more NDAO tokens; must be called by admin.
      * @param _to Address where newly minted tokens will be sent.
      * @param _amount Amount of tokens to mint.
      */
-    function mint(address _to, uint256 _amount) public {
-        if (msg.sender != admin) revert Unauthorized();
+    function mint(address _to, uint256 _amount) public requiresAuth {
         _mint(_to, _amount);
-    }
-
-    /**
-     * @notice Allows admin to set new admin.
-     * @param _newAdmin The address of the new admin account.
-     */
-    function updateAdmin(address _newAdmin) public {
-        if (msg.sender != admin) revert Unauthorized();
-        emit AdminUpdated(admin, _newAdmin);
-        admin = _newAdmin;
     }
 }

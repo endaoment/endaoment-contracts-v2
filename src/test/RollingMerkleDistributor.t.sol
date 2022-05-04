@@ -1,52 +1,43 @@
 // SPDX-License-Identifier: BSD 3-Claused
 pragma solidity ^0.8.12;
 
-import { DSTestPlus } from "./utils/DSTestPlus.sol";
+import { DeployTest } from "./utils/DeployTest.sol";
 import { IERC20 } from "openzeppelin-contracts/contracts/interfaces/IERC20.sol";
 import { Merkle } from "murky/Merkle.sol";
 import { RollingMerkleDistributor, RollingMerkleDistributorTypes } from "../RollingMerkleDistributor.sol";
-import { NDAO } from "../NDAO.sol";
 
-contract RollingMerkleDistributorTest is RollingMerkleDistributorTypes, DSTestPlus {
+contract RollingMerkleDistributorTest is RollingMerkleDistributorTypes, DeployTest {
+    Merkle merkle; // Used as lib for generating roots/proofs for tests.
+    IERC20 token; // token is NDAO, just cast as IERC20 for convenience.
 
-    RollingMerkleDistributor distributor;
-    NDAO ndao;
-    IERC20 token; // token is NDAO, just cast as IERC20
-    Merkle merkle; // Used as lib for generating roots/proofs for tests
-
-    address admin = address(0xAD);
-    bytes32 initialRoot = "beef_cafe";
-    uint256 initialPeriod = 60 days;
+    // Shadows EndaomentAuth
+    error Unauthorized();
 
     // Choose a value well above anything reasonable for bounding fuzzed distribution periods.
     uint256 MAX_FUZZ_PERIOD = 1000 * (365 days);
 
-     function setUp() public virtual {
-         vm.label(admin, "admin");
+    address[] public actors = [board, tokenTrust];
 
-         ndao = new NDAO(admin);
-         token = IERC20(address(ndao));
-         vm.label(address(token), "token");
+    function setUp() public override {
+        super.setUp();
+        token = IERC20(address(ndao));
 
-         distributor = new RollingMerkleDistributor(token, initialRoot, initialPeriod, admin);
-         vm.label(address(distributor), "distributor");
+        merkle = new Merkle();
+        vm.label(address(merkle), "merkle");
+    }
 
-         merkle = new Merkle();
-         vm.label(address(merkle), "merkle");
-     }
+    function getAuthorizedActor(uint256 _seed) public returns (address) {
+        uint256 _index = bound(_seed, 0, actors.length - 1);
+        return actors[_index];
+    }
 
-     function jumpPastWindow() public {
-         vm.warp(distributor.windowEnd() + 1);
-     }
+    function jumpPastWindow() public {
+        vm.warp(distributor.windowEnd() + 1);
+    }
 
-     function expectEvent_RolledOver(bytes32 _merkleRoot, uint256 _windowEnd) public {
-         vm.expectEmit(true, true, true, true);
-         emit MerkleRootRolledOver(_merkleRoot, _windowEnd);
-     }
-
-     function expectEvent_AdminUpdate(address _oldAdmin, address _newAdmin) public {
+    function expectEvent_RolledOver(bytes32 _merkleRoot, uint256 _windowEnd) public {
         vm.expectEmit(true, true, true, true);
-        emit AdminUpdated(_oldAdmin, _newAdmin);
+        emit MerkleRootRolledOver(_merkleRoot, _windowEnd);
     }
 
     function expectEvent_Claimed(uint256 _window, uint256 _index, address _claimant, uint256 _amount) public {
@@ -59,19 +50,24 @@ contract RollingMerkleDistributorTest is RollingMerkleDistributorTypes, DSTestPl
 contract Deployment is RollingMerkleDistributorTest {
 
     function test_Deployment() public {
-        assertEq(distributor.admin(), admin);
+        assertEq(address(distributor.authority()), address(globalTestRegistry));
         assertEq(address(distributor.token()), address(token));
         assertEq(distributor.merkleRoot(), initialRoot);
         assertEq(distributor.windowEnd(), block.timestamp + initialPeriod);
+
+        assertEq(address(baseDistributor.authority()), address(globalTestRegistry));
+        assertEq(address(baseDistributor.token()), address(baseToken));
+        assertEq(baseDistributor.merkleRoot(), initialRoot);
+        assertEq(baseDistributor.windowEnd(), block.timestamp + initialPeriod);
     }
 
-    function testFuzz_Deployment(address _token, bytes32 _root, uint256 _period, address _admin) public {
+    function testFuzz_Deployment(address _token, bytes32 _root, uint256 _period) public {
         _period = bound(_period, 1, MAX_FUZZ_PERIOD);
 
         expectEvent_RolledOver(_root, block.timestamp + _period);
-        RollingMerkleDistributor _distributor = new RollingMerkleDistributor(IERC20(_token), _root, _period, _admin);
+        RollingMerkleDistributor _distributor = new RollingMerkleDistributor(IERC20(_token), _root, _period, globalTestRegistry);
 
-        assertEq(_distributor.admin(), _admin);
+        assertEq(address(_distributor.authority()), address(globalTestRegistry));
         assertEq(address(_distributor.token()), _token);
         assertEq(_distributor.merkleRoot(), _root);
         assertEq(_distributor.windowEnd(), block.timestamp + _period);
@@ -81,55 +77,59 @@ contract Deployment is RollingMerkleDistributorTest {
 // Tests the ability to rollover the merkle root and claim window.
 contract Rollover is RollingMerkleDistributorTest {
 
-    function testFuzz_NonAdminCannotRollover(address _nonAdmin, bytes32 _root, uint256 _period) public {
-        vm.assume(_nonAdmin != admin);
+    function testFuzz_NonAuthorizedCannotRollover(address _nonAdmin, bytes32 _root, uint256 _period) public {
+        vm.assume(
+            _nonAdmin != board &&
+            _nonAdmin != capitalCommittee
+        );
         _period = bound(_period, 1, MAX_FUZZ_PERIOD);
 
         vm.expectRevert(Unauthorized.selector);
         distributor.rollover(_root, _period);
     }
 
-    function testFuzz_AdminCannotRolloverDuringWindow(bytes32 _root, uint256 _period) public {
+    function testFuzz_CannotRolloverDuringWindow(bytes32 _root, uint256 _period) public {
         _period = bound(_period, 1, MAX_FUZZ_PERIOD);
 
-        vm.prank(admin);
+        vm.prank(board);
         vm.expectRevert(PriorWindowStillOpen.selector);
         distributor.rollover(_root, _period);
     }
 
-    function testFuzz_AdminCannotRolloverAtEndOfWindow(bytes32 _root, uint256 _period) public {
+    function testFuzz_CannotRolloverAtEndOfWindow(bytes32 _root, uint256 _period) public {
         _period = bound(_period, 1, MAX_FUZZ_PERIOD);
         vm.warp(distributor.windowEnd()); // Jump to last second of current window.
 
-        vm.prank(admin);
+        vm.prank(board);
         vm.expectRevert(PriorWindowStillOpen.selector);
         distributor.rollover(_root, _period);
     }
 
-    function testFuzz_AdminCannotSetPeriodLengthToZero(bytes32 _root) public {
+    function testFuzz_CannotSetPeriodLengthToZero(bytes32 _root) public {
         jumpPastWindow();
 
-        vm.prank(admin);
+        vm.prank(board);
         vm.expectRevert(InvalidPeriod.selector);
         distributor.rollover(_root, 0);
     }
 
-    function testFuzz_AdminCannotSetPeriodLongerThanMaxLength(bytes32 _root, uint256 _period) public {
+    function testFuzz_CannotSetPeriodLongerThanMaxLength(bytes32 _root, uint256 _period) public {
         uint256 _max = distributor.MAX_PERIOD();
         _period = bound(_period, _max + 1, MAX_FUZZ_PERIOD);
         jumpPastWindow();
 
-        vm.prank(admin);
+        vm.prank(board);
         vm.expectRevert(InvalidPeriod.selector);
         distributor.rollover(_root, _max + 1);
     }
 
-    function testFuzz_AdminCanRolloverTheWindow(bytes32 _root, uint256 _period) public {
+    function testFuzz_CanRolloverTheWindow(bytes32 _root, uint256 _period, uint256 _seed) public {
+        address _actor = getAuthorizedActor(_seed);
         uint256 _max = distributor.MAX_PERIOD();
         _period = bound(_period, 1, _max);
         jumpPastWindow();
 
-        vm.prank(admin);
+        vm.prank(_actor);
         expectEvent_RolledOver(_root, block.timestamp + _period);
         distributor.rollover(_root, _period);
 
@@ -138,40 +138,21 @@ contract Rollover is RollingMerkleDistributorTest {
         assertEq(distributor.merkleRoot(), _root);
         assertEq(distributor.windowEnd(), _expectedWindow);
     }
-}
 
-// Tests the admin can update the admin.
-contract Admin is RollingMerkleDistributorTest {
+    function testFuzz_CanRolloverTheBaseDistributorWindow(bytes32 _root, uint256 _period, uint256 _seed) public {
+        address _actor = getAuthorizedActor(_seed);
+        uint256 _max = baseDistributor.MAX_PERIOD();
+        _period = bound(_period, 1, _max);
+        vm.warp(baseDistributor.windowEnd() + 1);
 
-    function testFuzz_AdminCanTransferAdmin(address _newAdmin) public {
-        vm.prank(admin);
-        distributor.updateAdmin(_newAdmin);
+        vm.prank(_actor);
+        expectEvent_RolledOver(_root, block.timestamp + _period);
+        baseDistributor.rollover(_root, _period);
 
-        assertEq(distributor.admin(), _newAdmin);
-    }
+        uint256 _expectedWindow = block.timestamp + _period;
 
-    function testFuzz_EmitsAdminUpdatedEvent(address _newAdmin) public {
-        vm.prank(admin);
-        expectEvent_AdminUpdate(admin, _newAdmin);
-        distributor.updateAdmin(_newAdmin);
-    }
-
-    function testFuzz_NewAdminCanTransferAdmin(address _newAdmin, address _newNewAdmin) public {
-        vm.prank(admin);
-        distributor.updateAdmin(_newAdmin);
-        assertEq(distributor.admin(), _newAdmin);
-
-        vm.prank(_newAdmin);
-        distributor.updateAdmin(_newNewAdmin);
-        assertEq(distributor.admin(), _newNewAdmin);
-    }
-
-    function testFuzz_NonAdminCannotUpdateAdmin(address _notAdmin, address _newAdmin) public {
-        vm.assume(_notAdmin != admin);
-
-        vm.prank(_notAdmin);
-        vm.expectRevert(Unauthorized.selector);
-        distributor.updateAdmin(_newAdmin);
+        assertEq(baseDistributor.merkleRoot(), _root);
+        assertEq(baseDistributor.windowEnd(), _expectedWindow);
     }
 }
 
@@ -262,7 +243,7 @@ contract Claim is RollingMerkleDistributorTest {
         _amount2 = bound(_amount1, 0, type(uint128).max);
 
         // Fund the distributor.
-        vm.prank(admin);
+        vm.prank(board);
         ndao.mint(address(distributor), _amount1 + _amount2);
 
         // Create the Merkle data.
@@ -279,7 +260,7 @@ contract Claim is RollingMerkleDistributorTest {
 
         // Rollover the distributor root.
         jumpPastWindow();
-        vm.prank(admin);
+        vm.prank(board);
         distributor.rollover(_root, 7 days);
         uint256 _window = distributor.windowEnd();
 
@@ -321,7 +302,7 @@ contract Claim is RollingMerkleDistributorTest {
         // Generate Merkle data.
         (bytes32 _root, bytes32[] memory _proof, uint256 _index) = makeBigTree(_claimant, _amount, _seed);
 
-        vm.startPrank(admin);
+        vm.startPrank(board);
         // Fund the distributor.
         ndao.mint(address(distributor), type(uint128).max);
         // Rollover the root.
@@ -343,6 +324,36 @@ contract Claim is RollingMerkleDistributorTest {
         assertEq(ndao.balanceOf(_claimant), _amount);
     }
 
+    function testFuzz_CanMakeClaimAgainstBaseDistributor(address _claimant, uint256 _amount, uint256 _seed) public {
+        vm.assume(_claimant != address(baseDistributor));
+        _amount = bound(_amount, 0, MAX_AMOUNT);
+        vm.warp(baseDistributor.windowEnd() + 1);
+
+        // Generate Merkle data.
+        (bytes32 _root, bytes32[] memory _proof, uint256 _index) = makeBigTree(_claimant, _amount, _seed);
+
+        vm.startPrank(board);
+        // Fund the baseDistributor.
+        baseToken.mint(address(baseDistributor), type(uint128).max);
+        // Rollover the root.
+        baseDistributor.rollover(_root, 7 days);
+        vm.stopPrank();
+        uint256 _window = baseDistributor.windowEnd();
+
+        // Make a claim.
+        Claim memory _claim = Claim({
+            index: _index,
+            claimant: _claimant,
+            amount: _amount,
+            merkleProof: _proof
+        });
+        expectEvent_Claimed(_window, _index, _claimant, _amount);
+        baseDistributor.claim(_claim);
+
+        assertTrue(baseDistributor.isClaimed(_window, _index));
+        assertEq(baseToken.balanceOf(_claimant), _amount);
+    }
+
     function testFuzz_CanMakeClaimAtTheEndOfTheWindow(address _claimant, uint256 _amount, uint256 _seed) public {
         vm.assume(_claimant != address(distributor));
         _amount = bound(_amount, 0, MAX_AMOUNT);
@@ -352,7 +363,7 @@ contract Claim is RollingMerkleDistributorTest {
         // Generate Merkle data.
         (bytes32 _root, bytes32[] memory _proof, uint256 _index) = makeBigTree(_claimant, _amount, _seed);
 
-        vm.startPrank(admin);
+        vm.startPrank(board);
         // Fund the distributor.
         ndao.mint(address(distributor), type(uint128).max);
         // Rollover the root.
@@ -391,7 +402,7 @@ contract Claim is RollingMerkleDistributorTest {
         // Generate Merkle data.
         (bytes32 _root, bytes32[] memory _proof, uint256 _index) = makeBigTree(_claimant, _amount1, _seed1);
 
-        vm.startPrank(admin);
+        vm.startPrank(board);
         // Fund the distributor.
         ndao.mint(address(distributor), type(uint128).max);
         // Rollover the root.
@@ -414,7 +425,7 @@ contract Claim is RollingMerkleDistributorTest {
         // Generate new Merkle data and rollover again.
         (_root, _proof, _index) = makeBigTree(_claimant, _amount2, _seed2);
         jumpPastWindow();
-        vm.prank(admin);
+        vm.prank(board);
         distributor.rollover(_root, 7 days);
         _window = distributor.windowEnd();
 
@@ -441,7 +452,7 @@ contract Claim is RollingMerkleDistributorTest {
         // Generate Merkle data.
         (bytes32 _root, bytes32[] memory _proof, uint256 _index) = makeBigTree(_claimant, _amount, _seed);
 
-        vm.startPrank(admin);
+        vm.startPrank(board);
         // Fund the distributor.
         ndao.mint(address(distributor), type(uint128).max);
         // Rollover the root.
@@ -476,7 +487,7 @@ contract Claim is RollingMerkleDistributorTest {
         bytes32[] memory _badProof = new bytes32[](1);
         _badProof[0] = keccak256(abi.encode(_seed));
 
-        vm.startPrank(admin);
+        vm.startPrank(board);
         // Fund the distributor.
         ndao.mint(address(distributor), type(uint128).max);
         // Rollover the root.
@@ -502,7 +513,7 @@ contract Claim is RollingMerkleDistributorTest {
         // Generate Merkle data.
         (bytes32 _root, bytes32[] memory _proof, uint256 _index) = makeBigTree(_claimant, _amount, _seed);
 
-        vm.startPrank(admin);
+        vm.startPrank(board);
         // Fund the distributor.
         ndao.mint(address(distributor), type(uint128).max);
         // Rollover the root.
@@ -544,18 +555,21 @@ contract Claim is RollingMerkleDistributorTest {
     }
 
     function testFuzz_CanMakeAClaimFromAnInitialDeployment(address _claimant, uint256 _amount, uint256 _seed) public {
-        vm.assume(_claimant != address(distributor));
+        vm.assume(
+            _claimant != address(distributor) &&
+            _claimant != board
+        );
         _amount = bound(_amount, 0, MAX_AMOUNT);
 
         // Generate Merkle data.
         (bytes32 _root, bytes32[] memory _proof, uint256 _index) = makeBigTree(_claimant, _amount, _seed);
 
         // Deploy a new distributor.
-        RollingMerkleDistributor _distributor = new RollingMerkleDistributor(token, _root, 7 days, admin);
+        RollingMerkleDistributor _distributor = new RollingMerkleDistributor(token, _root, 7 days, globalTestRegistry);
         uint256 _window = _distributor.windowEnd();
 
         // Fund the distributor.
-        vm.prank(admin);
+        vm.prank(board);
         ndao.mint(address(_distributor), type(uint128).max);
 
         // Make a claim.

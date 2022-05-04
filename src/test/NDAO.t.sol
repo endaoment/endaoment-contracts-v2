@@ -2,25 +2,10 @@
 pragma solidity ^0.8.12;
 
 import { DeployTest } from "./utils/DeployTest.sol";
-import { NDAO } from "../NDAO.sol";
 
 contract NDAOTest is DeployTest {
-    NDAO ndao;
-
     error Unauthorized();
     bytes ErrorUnauthorized = abi.encodeWithSelector(Unauthorized.selector);
-
-    event AdminUpdated(address indexed oldAdmin, address indexed newAdmin);
-
-    function setUp() public override {
-        super.setUp();
-        ndao = new NDAO(board);
-    }
-
-    function expectEvent_AdminUpdate(address oldAdmin, address newAdmin) public {
-        vm.expectEmit(true, true, false, false);
-        emit AdminUpdated(oldAdmin, newAdmin);
-    }
 }
 
 contract Deployment is NDAOTest {
@@ -29,115 +14,94 @@ contract Deployment is NDAOTest {
         assertEq(ndao.name(), "NDAO");
         assertEq(ndao.symbol(), "NDAO");
         assertEq(ndao.decimals(), 18);
-        assertEq(ndao.admin(), board);
-    }
-
-    function testFuzz_EmitsAdminUpdatedEventOnDeployment(address _admin) public {
-        expectEvent_AdminUpdate(address(0), _admin);
-        new NDAO(_admin);
+        assertEq(address(ndao.authority()), address(globalTestRegistry));
     }
 }
 
 contract Minting is NDAOTest {
+    address[] public actors = [board, capitalCommittee];
 
-    function testFuzz_AllowsAdminToMint(address to, uint256 amount) public {
-        uint256 initialBalance = ndao.balanceOf(to);
-
-        vm.prank(board);
-        ndao.mint(to, amount);
-
-        assertEq(ndao.balanceOf(to) - initialBalance, amount);
+    function getAuthorizedActor(uint256 _seed) public returns (address) {
+        uint256 _index = bound(_seed, 0, actors.length - 1);
+        return actors[_index];
     }
 
-    function testFuzz_AllowsAdminMultipleMints(address to, uint128 _amount1, uint128 _amount2) public {
-        // upcast fuzz vars that were uint128 just to bound their range
-        uint256 amount1 = _amount1;
-        uint256 amount2 = _amount2;
+    function testFuzz_AllowsAuthorizedToMint(address _to, uint256 _amount, uint256 _seed) public {
+        address _actor = getAuthorizedActor(_seed);
+        uint256 _initialBalance = ndao.balanceOf(_to);
 
-        uint256 initialBalance = ndao.balanceOf(to);
+        vm.prank(_actor);
+        ndao.mint(_to, _amount);
 
-        vm.prank(board);
-        ndao.mint(to, amount1);
-        assertEq(ndao.balanceOf(to) - initialBalance, amount1);
-
-        vm.prank(board);
-        ndao.mint(to, amount2);
-        assertEq(ndao.balanceOf(to) - initialBalance, amount1 + amount2);
+        assertEq(ndao.balanceOf(_to) - _initialBalance, _amount);
     }
 
-    function testFuzz_AllowsAdminToMintToMultipleAddresses(
-        address to1,
-        address to2,
-        uint128 _amount1,
-        uint128 _amount2
+    function testFuzz_AllowsMultipleMints(address _to, uint256 _amount1, uint256 _amount2, uint256 _seed) public {
+        address _actor = getAuthorizedActor(_seed);
+        _amount1 = bound(_amount1, 0, type(uint128).max);
+        _amount2 = bound(_amount2, 0, type(uint128).max);
+
+        uint256 _initialBalance = ndao.balanceOf(_to);
+
+        vm.prank(_actor);
+        ndao.mint(_to, _amount1);
+        assertEq(ndao.balanceOf(_to) - _initialBalance, _amount1);
+
+        vm.prank(_actor);
+        ndao.mint(_to, _amount2);
+        assertEq(ndao.balanceOf(_to) - _initialBalance, _amount1 + _amount2);
+    }
+
+    function testFuzz_AllowsMintToMultipleAddresses(
+        address _to1,
+        address _to2,
+        uint256 _amount1,
+        uint256 _amount2,
+        uint256 _seed
     ) public {
-        vm.assume(to1 != to2);
-        uint256 amount1 = _amount1;
-        uint256 amount2 = _amount2;
+        vm.assume(_to1 != _to2);
+        address _actor = getAuthorizedActor(_seed);
+        _amount1 = bound(_amount1, 0, type(uint128).max);
+        _amount2 = bound(_amount2, 0, type(uint128).max);
 
-        uint256 to1InitialBalance = ndao.balanceOf(to1);
-        uint256 to2InitialBalance = ndao.balanceOf(to2);
+        uint256 _to1InitialBalance = ndao.balanceOf(_to1);
+        uint256 _to2InitialBalance = ndao.balanceOf(_to2);
 
-        vm.startPrank(board);
-        ndao.mint(to1, amount1);
-        ndao.mint(to2, amount2);
+        vm.startPrank(_actor);
+        ndao.mint(_to1, _amount1);
+        ndao.mint(_to2, _amount2);
         vm.stopPrank();
 
-        assertEq(ndao.balanceOf(to1) - to1InitialBalance, amount1);
-        assertEq(ndao.balanceOf(to2) - to2InitialBalance, amount2);
+        assertEq(ndao.balanceOf(_to1) - _to1InitialBalance, _amount1);
+        assertEq(ndao.balanceOf(_to2) - _to2InitialBalance, _amount2);
     }
 
-    function testFuzz_DoesNotAllowNonAdminToMint(address notAdmin, address to, uint256 amount) public {
-        vm.assume(notAdmin != board);
+    function testFuzz_DoesNotAllowNonAuthorizedAccountToMint(address _notAdmin, address _to, uint256 _amount) public {
+        vm.assume(
+            _notAdmin != board &&
+            _notAdmin != capitalCommittee
+        );
 
-        vm.prank(notAdmin);
+        vm.prank(_notAdmin);
         vm.expectRevert(ErrorUnauthorized);
-        ndao.mint(to, amount);
+        ndao.mint(_to, _amount);
     }
 
-    function testFuzz_MintsAfterAdminUpdated(address newAdmin, address to, uint256 amount) public {
-        uint256 initialBalance = ndao.balanceOf(to);
-
+    function testFuzz_DoesNotAllowMintAfterCapabilityRemoved(address _to, uint256 _amount) public {
         vm.prank(board);
-        ndao.updateAdmin(newAdmin);
+        globalTestRegistry.setRoleCapability(22, address(ndao), ndaoMint, false);
 
-        vm.prank(newAdmin);
-        ndao.mint(to, amount);
-
-        assertEq(ndao.balanceOf(to) - initialBalance, amount);
-    }
-}
-
-contract Admin is NDAOTest {
-
-    function testFuzz_AdminCanTransferAdmin(address newAdmin) public {
-        vm.prank(board);
-        ndao.updateAdmin(newAdmin);
-
-        assertEq(ndao.admin(), newAdmin);
-    }
-
-    function testFuzz_EmitsAdminUpdatedEvent(address newAdmin) public {
-        vm.prank(board);
-        expectEvent_AdminUpdate(board, newAdmin);
-        ndao.updateAdmin(newAdmin);
-    }
-
-    function testFuzz_NewAdminCanTransferAdmin(address newAdmin, address newNewAdmin) public {
-        vm.prank(board);
-        ndao.updateAdmin(newAdmin);
-        assertEq(ndao.admin(), newAdmin);
-
-        vm.prank(newAdmin);
-        ndao.updateAdmin(newNewAdmin);
-        assertEq(ndao.admin(), newNewAdmin);
-    }
-
-    function testFuzz_NonAdminCannotUpdateAdmin(address notAdmin, address newAdmin) public {
-        vm.assume(notAdmin != board);
-
-        vm.prank(notAdmin);
+        vm.prank(capitalCommittee);
         vm.expectRevert(ErrorUnauthorized);
-        ndao.updateAdmin(newAdmin);
+        ndao.mint(_to, _amount);
+    }
+
+    function testFuzz_DoesNotAllowMintAfterRoleRemoved(address _to, uint256 _amount) public {
+        vm.prank(board);
+        globalTestRegistry.setUserRole(capitalCommittee, 22, false);
+
+        vm.prank(capitalCommittee);
+        vm.expectRevert(ErrorUnauthorized);
+        ndao.mint(_to, _amount);
     }
 }

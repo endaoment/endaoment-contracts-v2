@@ -4,6 +4,8 @@ pragma solidity ^0.8.12;
 import { ERC20Votes } from "openzeppelin-contracts/contracts/token/ERC20/extensions/ERC20Votes.sol";
 import { ERC20Permit } from "openzeppelin-contracts/contracts/token/ERC20/extensions/draft-ERC20Permit.sol";
 import { ERC20 } from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
+import { EndaomentAuth } from "./lib/auth/EndaomentAuth.sol";
+import { RolesAuthority } from "./lib/auth/authorities/RolesAuthority.sol";
 
 /**
  * @notice Subset of the ERC20 interface used for NVT's reference to the NDAO token.
@@ -13,8 +15,6 @@ interface INDAO {
     function transfer(address to, uint256 amount) external returns (bool);
     /// @dev see IERC20
     function transferFrom(address from, address to, uint256 amount) external returns (bool);
-    /// @dev see NDAO
-    function admin() external returns (address);
 }
 
 /**
@@ -41,7 +41,7 @@ abstract contract NVTTypes {
         uint256 vestDate; // Unix timestamp of when fully vested.
         uint256 amount; // Amount of tokens originally locked for vesting.
         uint256 balance; // The balance of tokens (vested & unvested) that have not yet been claimed by the vestee.
-        bool wasClawedBack; // Flag denoting if this vesting distribution was clawed back by the admin.
+        bool wasClawedBack; // Flag denoting if this vesting distribution was clawed back.
     }
 
     /// @notice Thrown when a caller attempts a transfer related ERC20 method.
@@ -49,9 +49,6 @@ abstract contract NVTTypes {
 
     /// @notice Thrown when an unlock request cannot be processed.
     error InvalidUnlockRequest();
-
-    /// @notice Thrown when an account other than the admin calls a privileged method.
-    error Unauthorized();
 
     /// @notice Thrown if a 0-length vesting period is specified.
     error InvalidVestingPeriod();
@@ -71,7 +68,7 @@ abstract contract NVTTypes {
     /// @notice Emitted when a vestee unlocks vested NVT tokens for NDAO.
     event VestUnlocked(address indexed vestee, uint256 amount);
 
-    /// @notice Emitted when the admin reclaims tokens that have not yet vested to a vestee.
+    /// @notice Emitted when an authorized account reclaims tokens that have not yet vested to a vestee.
     event ClawedBack(address indexed vestee, uint256 amount);
 }
 
@@ -79,7 +76,7 @@ abstract contract NVTTypes {
  * @notice The NDAO Voting Token, an ERC20. It is minted by locking NDAO tokens, and unlocks in a stream
  * over time back to the user.
  */
-contract NVT is NVTTypes, ERC20Votes {
+contract NVT is NVTTypes, ERC20Votes, EndaomentAuth {
 
     // --- Storage Variables ---
 
@@ -99,8 +96,12 @@ contract NVT is NVTTypes, ERC20Votes {
 
     /**
      * @param _ndao The address of the NDAO Token contract.
+     * @param _authority The address of the authority which defines permissions for vests & clawbacks.
      */
-    constructor(INDAO _ndao) ERC20("NDAO Voting Token", "NVT") ERC20Permit("NVT") {
+    constructor(
+        INDAO _ndao,
+        RolesAuthority _authority
+    ) ERC20("NDAO Voting Token", "NVT") ERC20Permit("NVT") EndaomentAuth(_authority, "") {
         ndao = _ndao;
     }
 
@@ -262,14 +263,13 @@ contract NVT is NVTTypes, ERC20Votes {
     }
 
     /**
-     * @notice Lock vesting NDAO tokens for a vestee and grant them NVT. Admin only.
+     * @notice Lock vesting NDAO tokens for a vestee and grant them NVT. Authorized accounts only.
      * @param _vestee The account receiving the vesting distribution. Each account can only receive
      * one vesting distribution.
      * @param _amount The number of NDAO tokens to be converted to NVT and vested.
      * @param _period The length of time over which tokens vest in seconds. Must be > 0.
      */
-    function vestLock(address _vestee, uint256 _amount, uint256 _period) public {
-        if (msg.sender != ndao.admin()) revert Unauthorized();
+    function vestLock(address _vestee, uint256 _amount, uint256 _period) public requiresAuth {
         if (_period == 0) revert InvalidVestingPeriod();
         if (vestingSchedules[_vestee].vestDate != 0) revert AccountAlreadyVesting();
 
@@ -306,13 +306,11 @@ contract NVT is NVTTypes, ERC20Votes {
     }
 
     /**
-     * @notice Returns all unvested tokens to the admin for a given vestee. Cannot clawback any vested tokens,
-     * whether they have been unlocked or not.
+     * @notice Returns all unvested tokens to the authorized caller for a given vestee. Cannot clawback any vested 
+     * tokens, whether they have been unlocked or not.
      * @param _vestee The vestee to claw back from.
      */
-    function clawback(address _vestee) public {
-        if (msg.sender != ndao.admin()) revert Unauthorized();
-
+    function clawback(address _vestee) public requiresAuth {
         uint256 _vestedBalance = availableForVestUnlock(_vestee, block.timestamp);
 
         uint256 _unvestedBalance;
