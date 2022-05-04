@@ -9,6 +9,7 @@ import { SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
 
 import { Entity } from "./Entity.sol";
 import { ISwapWrapper } from "./interfaces/ISwapWrapper.sol";
+import { Portfolio } from "./Portfolio.sol";
 
 // --- Errors ---
 error Unauthorized();
@@ -43,8 +44,10 @@ contract Registry is RolesAuthority {
     mapping (Entity => mapping(uint8 => uint32)) transferFeeSenderOverride;
     /// @notice maps sender entity type to specific entity receiver to fee percentage as a zoc.
     mapping (uint8 => mapping(Entity => uint32)) transferFeeReceiverOverride;
-    /// @notice mapping of supported swap wrappers.
+    /// @notice maps swap wrappers to their enabled/disabled status.
     mapping (ISwapWrapper => bool) public isSwapperSupported;
+    /// @notice maps portfolios to their enabled/disabled status.
+    mapping (Portfolio => bool) public isActivePortfolio;
 
     // --- Events ---
 
@@ -56,6 +59,9 @@ contract Registry is RolesAuthority {
 
     /// @notice The event emitted when a swap wrapper is set active or inactive.
     event SwapWrapperStatusSet(address indexed swapWrapper, bool isSupported);
+
+    /// @notice The event emitted when a portfolio is set active or inactive.
+    event PortfolioStatusSet(address indexed portfolio, bool isActive);
     
     /// @notice Emitted when a default donation fee is set for an entity type.
     event DefaultDonationFeeSet(uint8 indexed entityType, uint32 fee);
@@ -137,6 +143,16 @@ contract Registry is RolesAuthority {
         if(!isApprovedFactory[msg.sender]) revert Unauthorized();
         isActiveEntity[_entity] = true;
         emit EntityStatusSet(address(_entity), true);
+    }
+
+    /**
+     * @notice Sets the enable/disable state of a Portfolio.
+     * @param _portfolio Portfolio.
+     * @param _isActive True if setting portfolio to active, false otherwise.
+     */
+    function setPortfolioStatus(Portfolio _portfolio, bool _isActive) external requiresAuth {
+        isActivePortfolio[_portfolio] = _isActive;
+        emit PortfolioStatusSet(address(_portfolio), _isActive);
     }
 
     /**

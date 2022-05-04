@@ -4,10 +4,12 @@ import "solmate/tokens/ERC20.sol";
 import "solmate/utils/SafeTransferLib.sol";
 
 import { Registry, Unauthorized } from  "./Registry.sol";
+import { Portfolio } from "./Portfolio.sol";
 import { Auth, Authority } from "./lib/auth/Auth.sol";
 import { Math } from "./lib/Math.sol";
 
 error EntityInactive();
+error PortfolioInactive();
 error InsufficientFunds();
 error InvalidAction();
 error InvalidTransferAttempt();
@@ -39,6 +41,13 @@ abstract contract Entity is Auth {
 
     /// @notice Emitted when a transfer is made between entities.
     event EntityFundsTransferred(address indexed from, address indexed to, uint256 amountReceived, uint256 amountFee);
+
+    /// @notice Emitted when a portfolio deposit is made.
+    event EntityDeposit(address indexed portfolio, uint256 baseTokenDeposited, uint256 sharesRecieved);
+
+    /// @notice Emitted when a portfolio share redemption is made.
+    event EntityRedeem(address indexed portfolio, uint256 sharesRedeemed, uint256 baseTokenReceived);
+
 
     /**
      * @notice Modifier for methods that require auth and that the manager cannot access.
@@ -200,6 +209,41 @@ abstract contract Entity is Auth {
          if (!registry.isActiveEntity(Entity(msg.sender))) revert InvalidTransferAttempt();
          balance += _transferAmount;
      }
+
+     /**
+     * @notice Deposits an amount of Entity's `baseToken` into an Endaoment-approved Portfolio.
+     * @param _portfolio An Endaoment-approved portfolio.
+     * @param _amount Amount of `baseToken` to deposit into the portfolio.
+     * @param _data Data required by a portfolio to deposit.
+     * @return _shares Amount of portfolio share tokens Entity received as a result of this deposit.
+     */
+    function portfolioDeposit(Portfolio _portfolio, uint256 _amount, bytes calldata _data) external requiresManager returns (uint256) {
+        if(!registry.isActivePortfolio(_portfolio)) revert PortfolioInactive();
+        balance -= _amount;
+        baseToken.safeApprove(address(_portfolio), 0);
+        baseToken.safeApprove(address(_portfolio), _amount);
+        uint256 _shares = _portfolio.deposit(_amount, _data);
+        emit EntityDeposit(address(_portfolio), _amount, _shares);
+        return _shares;
+    }
+
+    /**
+     * @notice Redeems an amount of Entity's portfolio shares for an amount of `baseToken`.
+     * @param _portfolio An Endaoment-approved portfolio.
+     * @param _shares Amount of share tokens to redeem.
+     * @param _data Data required by a portfolio to redeem.
+     * @return _received Amount of `baseToken` Entity received as a result of this redemption.
+     */
+    function portfolioRedeem(Portfolio _portfolio, uint256 _shares, bytes calldata _data) external requiresManager returns (uint256) {
+        if(!registry.isActivePortfolio(_portfolio)) revert PortfolioInactive();
+        uint256 _received = _portfolio.redeem(_shares, _data);
+        // unchecked: a realistic balance can never overflow a uint256
+        unchecked {
+            balance += _received;
+        }
+        emit EntityDeposit(address(_portfolio), _shares, _received);
+        return _received;
+    }
 
     /**
      * @dev We override Auth.sol:isAuthorized() in order to achieve the following:

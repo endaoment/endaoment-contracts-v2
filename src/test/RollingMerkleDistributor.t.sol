@@ -198,7 +198,7 @@ contract Claim is RollingMerkleDistributorTest {
         address _claimant,
         uint256 _amount,
         uint256 _seed
-    ) public view returns (bytes32 _root, bytes32[] memory _proof, uint256 _claimantIndex) {
+    ) public returns (bytes32 _root, bytes32[] memory _proof, uint256 _claimantIndex) {
         uint256 _seedHash1 = uint256(keccak256(abi.encode(_seed)));
         uint256 _seedHash2 = uint256(keccak256(abi.encode(_seedHash1)));
 

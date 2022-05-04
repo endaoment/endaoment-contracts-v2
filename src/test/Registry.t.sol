@@ -17,6 +17,7 @@ contract RegistryTest is DeployTest {
     event TransferFeeSenderOverrideSet(address indexed fromEntity, uint8 indexed toEntityType, uint32 fee);
     event TransferFeeReceiverOverrideSet(uint8 indexed fromEntityType, address indexed toEntity, uint32 fee);
     event SwapWrapperStatusSet(address indexed swapWrapper, bool isActive);
+    event PortfolioStatusSet(address indexed portfolio, bool isActive);
 }
 
 contract RegistryConstructor is RegistryTest {
@@ -96,6 +97,16 @@ contract RegistrySetSwapWrapperStatus is RegistryTest {
         vm.prank(board);
         globalTestRegistry.setSwapWrapperStatus(_swapWrapper, _status);
         assertEq(globalTestRegistry.isSwapperSupported(_swapWrapper), _status);
+    }
+}
+
+contract RegistrySetPortfolioStatus is RegistryTest {
+    function testFuzz_SetPortfolioStatus(Portfolio _portfolio, bool _status) public {
+        vm.expectEmit(true, true, false, false);
+        emit PortfolioStatusSet(address(_portfolio), _status);
+        vm.prank(board);
+        globalTestRegistry.setPortfolioStatus(_portfolio, _status);
+        assertEq(globalTestRegistry.isActivePortfolio(_portfolio), _status);
     }
 }
 

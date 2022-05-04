@@ -1,6 +1,8 @@
 //SPDX-License-Identifier: BSD 3-Clause
 pragma solidity ^0.8.12;
 
+error ETHAmountInMismatch();
+
 /**
  * @notice ISwapWrapper is the interface that all swap wrappers should implement.
  * This will be used to support swap protocols like Uniswap V2 and V3, Sushiswap, 1inch, etc.

@@ -1,13 +1,11 @@
 //SPDX-License-Identifier: BSD 3-Clause
 pragma solidity ^0.8.12;
 
-import { ISwapWrapper } from "../interfaces/ISwapWrapper.sol";
+import { ISwapWrapper, ETHAmountInMismatch } from "../interfaces/ISwapWrapper.sol";
 import { ISwapRouter } from "../lib/IUniswapV3SwapRouter.sol";
 import { ERC20 } from "solmate/tokens/ERC20.sol";
 import { IWETH9 } from "../lib/IWETH9.sol";
 import { SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
-
-error ETHAmountInMismatch();
 
 contract UniV3Wrapper is ISwapWrapper {
     using SafeTransferLib for ERC20;
@@ -53,7 +51,7 @@ contract UniV3Wrapper is ISwapWrapper {
 
         // If caller isn't sending ETH, we need to transfer in tokens and approve the router
         if (!_isInputEth) {
-            ERC20(_tokenIn).safeTransferFrom(msg.sender, address(this), _amount);
+            ERC20(_tokenIn).safeTransferFrom(_sender, address(this), _amount);
             // We first set allowance to 0 then to the swap amount because some tokens like USDT do not allow you
             // to change allowance without going through zero. They do this as mitigation against the ERC-20
             // approval race condition, but that race condition is not an issue here.
