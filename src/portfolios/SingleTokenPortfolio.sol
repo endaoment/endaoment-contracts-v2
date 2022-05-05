@@ -14,6 +14,7 @@ contract SingleTokenPortfolio is Portfolio {
     using SafeTransferLib for ERC20;
     using Math for uint256;
     uint256 public exchangeRate;
+    uint256 public override totalAssets;
 
     /**
      * @param _registry Endaoment registry.

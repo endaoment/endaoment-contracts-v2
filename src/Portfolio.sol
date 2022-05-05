@@ -14,7 +14,6 @@ abstract contract Portfolio is ERC20, EndaomentAuth {
     uint256 public cap;
     uint256 public redemptionFee;
     address public immutable asset;
-    uint256 public totalAssets;
 
     error TransferDisallowed();
     error NotEntity();
@@ -75,10 +74,16 @@ abstract contract Portfolio is ERC20, EndaomentAuth {
         emit RedemptionFeeSet(_pct);
     }
 
-    function takeFees(uint256 _AmountAssets) external virtual;
+    /**
+     * @notice Total amount of the underlying asset that is managed by the Portfolio.
+     */
+    function totalAssets() external view virtual returns (uint256);
 
-    // /// @notice The address of the underlying ERC20 token used for the Portfolio for accounting, depositing, and withdrawing.
-    // function asset() external view virtual returns (address asset);
+    /**
+     * @notice Takes some amount of assets from this portfolio as assets under management fee.
+     * @param _amountAssets Amount of assets to take.
+     */
+    function takeFees(uint256 _amountAssets) external virtual;
 
     /**
      * @notice Exchange `_amountBaseToken` for some amount of Portfolio shares.
