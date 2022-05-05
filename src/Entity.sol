@@ -91,7 +91,7 @@ abstract contract Entity is EndaomentAuth {
      * @notice Receives a donated amount of base tokens to be added to the entity's balance. Transfers default fee to treasury.
      * @param _amount Amount donated in base token.
      * @dev Reverts if the donation fee percentage is larger than 100% (equal to 1e4 when represented as a zoc).
-     * @dev Reverts if the entity is inactive or if the token transfer fails.
+     * @dev Reverts if the token transfer fails.
      */
     function donate(uint256 _amount) external {
         uint32 _feeMultiplier = registry.getDonationFee(this);
@@ -102,7 +102,7 @@ abstract contract Entity is EndaomentAuth {
      * @notice Receives a donated amount of base tokens to be added to the entity's balance. Transfers default or overridden fee to treasury.
      * @param _amount Amount donated in base token.
      * @dev Reverts if the donation fee percentage is larger than 100% (equal to 1e4 when represented as a zoc).
-     * @dev Reverts if the entity is inactive or if the token transfer fails.
+     * @dev Reverts if the token transfer fails.
      */
     function donateWithOverrides(uint256 _amount) external {
         uint32 _feeMultiplier = registry.getDonationFeeWithOverrides(this);
@@ -114,10 +114,9 @@ abstract contract Entity is EndaomentAuth {
      * @param _amount Amount donated in base token.
      * @param _feeMultiplier Value indicating the percentage of the Endaoment donation fee to go to the Endaoment treasury.
      * @dev Reverts if the donation fee percentage is larger than 100% (equal to 1e4 when represented as a zoc).
-     * @dev Reverts if the entity is inactive or if the token transfer fails.
+     * @dev Reverts if the token transfer fails.
      */
     function _donateWithFeeMultiplier(uint256 _amount, uint32 _feeMultiplier) internal {
-        if (!registry.isActiveEntity(this)) revert EntityInactive();
         uint256 _fee;
         uint256 _netAmount;
         if (_feeMultiplier > Math.ZOC) revert InvalidAction();

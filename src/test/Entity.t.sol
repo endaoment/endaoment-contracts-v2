@@ -70,15 +70,17 @@ abstract contract EntityDonateTransferTest is DeployTest {
     }
 
     // Test a normal donation to an entity from a donor.
-    function testFuzz_DonateSuccess(address _donor, uint256 _donationAmount, uint256 _feePercent) public {
+    function testFuzz_DonateSuccess(address _donor, uint256 _donationAmount, uint256 _feePercent, bool _isActive) public {
         _donationAmount = bound(_donationAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
         vm.assume(_donor != treasury);
         vm.assume(_donor != address(entity));
         _feePercent = bound(_feePercent, 0, Math.ZOC);
-        vm.prank(board);
+        vm.startPrank(board);
+        globalTestRegistry.setEntityStatus(entity, _isActive);
         // set the default donation fee to some percentage between 0 and 100 percent
         globalTestRegistry.setDefaultDonationFee(testEntityType, uint32(_feePercent));
         ERC20 _baseToken = globalTestRegistry.baseToken();
+        vm.stopPrank();
         vm.prank(_donor);
         _baseToken.approve(address(entity), _donationAmount);
         uint256 _amountFee = Math.zocmul(_donationAmount, _feePercent);
@@ -95,12 +97,13 @@ abstract contract EntityDonateTransferTest is DeployTest {
     }
 
     // Test a donation with overrides to an entity from a donor.
-    function testFuzz_DonateWithOverridesSuccess(address _donor, uint256 _donationAmount, uint256 _feePercent) public {
+    function testFuzz_DonateWithOverridesSuccess(address _donor, uint256 _donationAmount, uint256 _feePercent, bool _isActive) public {
         _donationAmount = bound(_donationAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
         vm.assume(_donor != treasury);
         vm.assume(_donor != address(entity));
         _feePercent = bound(_feePercent, onePercentZoc, Math.ZOC);
         vm.startPrank(board);
+        globalTestRegistry.setEntityStatus(entity, _isActive);
         // set the default donation fee to some percentage between 1 and 100 percent
         globalTestRegistry.setDefaultDonationFee(testEntityType, uint32(_feePercent));
         // set the donation receiver override fee to one percent less than the default fee percentage
@@ -132,30 +135,12 @@ abstract contract EntityDonateTransferTest is DeployTest {
         entity.donate(_donationAmount);
     }
 
-    // Test that a donation to an inactive Entity fails.
-    function testFuzz_DonateFailInactive(address _donor, uint256 _donationAmount) public {
-        vm.prank(board);
-        globalTestRegistry.setEntityStatus(entity, false);
-        vm.expectRevert(abi.encodeWithSelector(EntityInactive.selector));
-        vm.prank(_donor);
-        entity.donate(_donationAmount);
-    }
-
     // Test that a donation with fee overrides to an entity that has donations disallowed via default donation fee fails.
     function testFuzz_DonateWithOverridesFailInvalidAction(address _donor, uint256 _donationAmount) public {
         vm.prank(board);
         // disallow donations to the entityType by setting the default donation fee to max
         globalTestRegistry.setDefaultDonationFee(testEntityType, type(uint32).max);
         vm.expectRevert(InvalidAction.selector);
-        vm.prank(_donor);
-        entity.donateWithOverrides(_donationAmount);
-    }
-
-    // Test that a donation with fee overrides to an inactive Entity fails.
-    function testFuzz_DonateWithOverridesFailInactive(address _donor, uint256 _donationAmount) public {
-        vm.prank(board);
-        globalTestRegistry.setEntityStatus(entity, false);
-        vm.expectRevert(abi.encodeWithSelector(EntityInactive.selector));
         vm.prank(_donor);
         entity.donateWithOverrides(_donationAmount);
     }
