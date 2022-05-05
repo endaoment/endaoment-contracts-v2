@@ -7,6 +7,7 @@ import { RolesAuthority } from './authorities/RolesAuthority.sol';
  * @notice An abstract Auth that contracts in the Endaoment ecosystem can inherit from. It is based on
  * the `Auth.sol` contract from Solmate, but does not inherit from it. Most of the functionality
  * is either slightly different, or not needed. In particular:
+ * - EndaomentAuth uses an initializer such that it can be deployed with minimal proxies.
  * - EndaomentAuth contracts reference a RolesAuthority, not just an Authority, when looking up permissions.
  *   In the Endaoment ecosystem, this is assumed to be the Registry.
  * - EndaomentAuth contracts do not have an owner, but instead grant ubiquitous permission to its RoleAuthority's
@@ -24,6 +25,9 @@ abstract contract EndaomentAuth {
     /// @notice Thrown if there is an attempt to deploy with address 0 as the authority.
     error InvalidAuthority();
 
+    /// @notice Thrown if there is a second call to initialize.
+    error AlreadyInitialized();
+
     /// @notice The contract used to source permissions for accounts targeting this contract.
     RolesAuthority public authority;
 
@@ -36,12 +40,15 @@ abstract contract EndaomentAuth {
     bytes20 public specialTarget;
 
     /**
+     * @notice One time method to be called at deployment to configure the contract. Required so EndaomentAuth
+     * contracts can be deployed as minimal proxies (clones).
      * @param _authority Contract that will be used to source permissions for accounts targeting this contract.
      * @param _specialTarget The bytes that this contract will pass as the "target" when looking up permissions
      * from the authority. If set to empty bytes, this contract will pass its own address instead.
      */
-    constructor(RolesAuthority _authority, bytes20 _specialTarget) {
+    function initialize(RolesAuthority _authority, bytes20 _specialTarget) public virtual {
         if (address(_authority) == address(0)) revert InvalidAuthority();
+        if (address(authority) != address(0)) revert AlreadyInitialized();
         authority = _authority;
         specialTarget = _specialTarget;
     }

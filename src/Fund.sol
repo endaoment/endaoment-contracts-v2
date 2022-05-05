@@ -10,12 +10,6 @@ import { Entity } from "./Entity.sol";
 contract Fund is Entity {
 
     /**
-     * @param _registry The registry to host the Fund Entity.
-     * @param _manager The fund manager.
-     */
-    constructor(Registry _registry, address _manager) Entity(_registry, _manager) { }
-
-    /**
      * @inheritdoc Entity
      */
     function entityType() public pure override returns (uint8) {

@@ -20,7 +20,7 @@ contract OrgFundFactoryConstructor is OrgFundFactoryTest {
 
 contract OrgFundFactoryDeployOrgTest is OrgFundFactoryTest {
     function testFuzz_DeployOrg(bytes32 _orgId, bytes32 _salt) public {
-        address _expectedContractAddress = orgFundFactory.computeOrgAddress(_orgId, _salt);
+        address _expectedContractAddress = orgFundFactory.computeOrgAddress(_salt);
         vm.expectEmit(true, true, true, false);
         emit EntityDeployed(_expectedContractAddress, 1, address(0));
         Org _org = orgFundFactory.deployOrg(_orgId, _salt);
@@ -33,7 +33,7 @@ contract OrgFundFactoryDeployOrgTest is OrgFundFactoryTest {
 
     function testFuzz_DeployOrgFailDuplicate(bytes32 _orgId, bytes32 _salt) public {
         orgFundFactory.deployOrg(_orgId, _salt);
-        vm.expectRevert();
+        vm.expectRevert("ERC1167: create2 failed");
         orgFundFactory.deployOrg(_orgId, _salt);
     }
 
@@ -44,19 +44,20 @@ contract OrgFundFactoryDeployOrgTest is OrgFundFactoryTest {
     }
 
     function testFuzz_DeployOrgFailAfterUnwhitelisting(bytes32 _orgId, bytes32 _salt) public {
+        bytes32 _salt2 = keccak256(abi.encode(_salt));
         vm.assume(_orgId != "1234");
         orgFundFactory.deployOrg(_orgId, _salt);
         vm.prank(board);
         globalTestRegistry.setFactoryApproval(address(orgFundFactory), false);
         vm.expectRevert(abi.encodeWithSelector(Unauthorized.selector));
-        orgFundFactory.deployOrg("1234", _salt);
+        orgFundFactory.deployOrg("1234", _salt2);
     }
 
     function testFuzz_DeployOrgFromFactory2(bytes32 _orgId, bytes32 _salt) public {
         OrgFundFactory orgFundFactory2 = new OrgFundFactory(globalTestRegistry);
         vm.prank(board);
         globalTestRegistry.setFactoryApproval(address(orgFundFactory2), true);
-        address _expectedContractAddress = orgFundFactory2.computeOrgAddress(_orgId, _salt);
+        address _expectedContractAddress = orgFundFactory2.computeOrgAddress(_salt);
         vm.expectEmit(true, true, true, false);
         emit EntityDeployed(_expectedContractAddress, 1, address(0));
         Org _org = orgFundFactory2.deployOrg(_orgId, _salt);
@@ -69,7 +70,7 @@ contract OrgFundFactoryDeployOrgTest is OrgFundFactoryTest {
 
 contract OrgFundFactoryDeployFundTest is OrgFundFactoryTest {
     function testFuzz_DeployFund(address _manager, bytes32 _salt) public {
-        address _expectedContractAddress = orgFundFactory.computeFundAddress(_manager, _salt);
+        address _expectedContractAddress = orgFundFactory.computeFundAddress(_salt);
         vm.expectEmit(true, true, true, false);
         emit EntityDeployed(_expectedContractAddress, 2, _manager);
         Fund _fund = orgFundFactory.deployFund(_manager, _salt);
@@ -81,7 +82,7 @@ contract OrgFundFactoryDeployFundTest is OrgFundFactoryTest {
 
     function testFuzz_DeployFundDuplicateFail(address _manager, bytes32 _salt) public {
         orgFundFactory.deployFund(_manager, _salt);
-        vm.expectRevert();
+        vm.expectRevert("ERC1167: create2 failed");
         orgFundFactory.deployFund(_manager, _salt);
     }
 
@@ -92,19 +93,20 @@ contract OrgFundFactoryDeployFundTest is OrgFundFactoryTest {
     }
 
     function testFuzz_DeployFundFailAfterUnwhitelisting(address _manager, bytes32 _salt) public {
+        bytes32 _salt2 = keccak256(abi.encode(_salt));
         vm.assume(_manager != address(1234));
         orgFundFactory.deployFund(_manager, _salt);
         vm.prank(board);
         globalTestRegistry.setFactoryApproval(address(orgFundFactory), false);
         vm.expectRevert(abi.encodeWithSelector(Unauthorized.selector));
-        orgFundFactory.deployFund(address(1234), _salt);
+        orgFundFactory.deployFund(address(1234), _salt2);
     }
 
     function testFuzz_DeployFundFromFactory2(address _manager, bytes32 _salt) public {
         OrgFundFactory orgFundFactory2 = new OrgFundFactory(globalTestRegistry);
         vm.prank(board);
         globalTestRegistry.setFactoryApproval(address(orgFundFactory2), true);
-        address _expectedContractAddress = orgFundFactory2.computeFundAddress(_manager, _salt);
+        address _expectedContractAddress = orgFundFactory2.computeFundAddress(_salt);
         vm.expectEmit(true, true, true, false);
         emit EntityDeployed(_expectedContractAddress, 2, _manager);
         Fund _fund = orgFundFactory2.deployFund(_manager, _salt);

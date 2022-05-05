@@ -11,9 +11,9 @@ import { RolesAuthority } from "./lib/auth/authorities/RolesAuthority.sol";
 contract NDAO is ERC20, EndaomentAuth {
 
     /// @param _authority The address of the authority which defines permissions for NDAO minting.
-    constructor(
-        RolesAuthority _authority
-    ) ERC20("NDAO", "NDAO", 18) EndaomentAuth(_authority, "") { }
+    constructor(RolesAuthority _authority) ERC20("NDAO", "NDAO", 18) {
+        initialize(_authority, "");
+    }
 
     /**
      * @notice Mint more NDAO tokens; must be called by admin.

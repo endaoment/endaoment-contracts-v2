@@ -40,11 +40,12 @@ abstract contract Portfolio is ERC20, EndaomentAuth {
      * @param _cap Amount in baseToken that value of totalAssets should not exceed.
      * @param _redemptionFee Percentage fee as ZOC that will go to treasury on share redemption.
      */
-    constructor(Registry _registry, address _asset, string memory _name, string memory _symbol, uint256 _cap, uint256 _redemptionFee) ERC20(_name, _symbol, ERC20(_asset).decimals()) EndaomentAuth(_registry, "portfolio") {
+    constructor(Registry _registry, address _asset, string memory _name, string memory _symbol, uint256 _cap, uint256 _redemptionFee) ERC20(_name, _symbol, ERC20(_asset).decimals()) {
         registry = _registry;
         redemptionFee = _redemptionFee;
         cap = _cap;
         asset = _asset;
+        initialize(_registry, "portfolio");
     }
 
     /**

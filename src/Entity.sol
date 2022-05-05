@@ -22,13 +22,13 @@ abstract contract Entity is EndaomentAuth {
     using SafeTransferLib for ERC20;
 
     /// @notice The base registry to which the entity is connected.
-    Registry public immutable registry;
+    Registry public registry;
 
     /// @notice The entity's manager.
     address public manager;
 
     // @notice The base token used for tracking the entity's fund balance.
-    ERC20 public immutable baseToken;
+    ERC20 public baseToken;
 
     /// @notice The current balance for the entity, denominated in the base token's units.
     uint256 public balance;
@@ -64,16 +64,14 @@ abstract contract Entity is EndaomentAuth {
     function entityType() public pure virtual returns (uint8);
 
     /**
+     * @notice One time method to be called at deployment to configure the contract. Required so Entity
+     * contracts can be deployed as minimal proxies (clones).
      * @param _registry The registry to host the Entity.
      * @param _manager The address of the Entity's manager.
      */
-    constructor(
-        Registry _registry,
-        address _manager
-    ) EndaomentAuth(
-            _registry,
-            bytes20(bytes.concat("entity", bytes1(entityType())))
-    ) {
+    function initialize(Registry _registry, address _manager) public {
+        // Call to EndaomentAuth's initialize function ensures that this can't be called again
+        initialize(_registry, bytes20(bytes.concat("entity", bytes1(entityType()))));
         registry = _registry;
         manager = _manager;
         baseToken = _registry.baseToken();

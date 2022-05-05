@@ -101,8 +101,9 @@ contract NVT is NVTTypes, ERC20Votes, EndaomentAuth {
     constructor(
         INDAO _ndao,
         RolesAuthority _authority
-    ) ERC20("NDAO Voting Token", "NVT") ERC20Permit("NVT") EndaomentAuth(_authority, "") {
+    ) ERC20("NDAO Voting Token", "NVT") ERC20Permit("NVT") {
         ndao = _ndao;
+        initialize(_authority, "");
     }
 
     // --- On-chain View Methods ---

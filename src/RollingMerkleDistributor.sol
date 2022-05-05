@@ -83,11 +83,13 @@ contract RollingMerkleDistributor is RollingMerkleDistributorTypes, EndaomentAut
         bytes32 _initialRoot,
         uint256 _initialPeriod,
         RolesAuthority _authority
-    ) EndaomentAuth(_authority, "") {
+    ) {
         token = _token;
 
         merkleRoot = _initialRoot;
         windowEnd = block.timestamp + _initialPeriod;
+
+        initialize(_authority, "");
 
         emit MerkleRootRolledOver(merkleRoot, windowEnd);
     }

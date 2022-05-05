@@ -55,7 +55,7 @@ contract RegistrySetFactoryApproval is RegistryTest {
 }
 
 contract RegistrySetEntityActive is RegistryTest {
-    function testFuzz_SetEntityActive(address _factory, Entity _entity) public {       
+    function testFuzz_SetEntityActive(address _factory, Entity _entity) public {
         vm.prank(board);
         globalTestRegistry.setFactoryApproval(_factory, true);
         vm.expectEmit(true, false, false, false);
@@ -65,7 +65,8 @@ contract RegistrySetEntityActive is RegistryTest {
         assertEq(globalTestRegistry.isActiveEntity(_entity), true);
     }
 
-    function testFuzz_SetEntityActiveFail(address _badFactory, Entity _entity) public {       
+    function testFuzz_SetEntityActiveFail(address _badFactory, Entity _entity) public {
+        vm.assume(_badFactory != address(orgFundFactory));
         vm.expectRevert(Unauthorized.selector);
         vm.prank(_badFactory);
         globalTestRegistry.setEntityActive(_entity);
@@ -178,7 +179,7 @@ contract RegistrySetDonationFeeReceiverOverride is RegistryTest {
         vm.assume( (_fee > 0) && (_fee < (type(uint32).max-1)) );
         address actor = actors[_actor % actors.length];
         Fund _fund1 = orgFundFactory.deployFund(_manager1, "salt");
-        Fund _fund2 = orgFundFactory.deployFund(_manager2, "salt");
+        Fund _fund2 = orgFundFactory.deployFund(_manager2, "salt2");
         vm.startPrank(actor);
         vm.expectEmit(true, false, false, false);
         emit DefaultDonationFeeSet(FundType, _fee + 1);
@@ -196,7 +197,7 @@ contract RegistrySetDonationFeeReceiverOverride is RegistryTest {
         vm.assume(_orgId1 != _orgId2);
         address actor = actors[_actor % actors.length];
         Org _org1 = orgFundFactory.deployOrg(_orgId1, "salt");
-        Org _org2 = orgFundFactory.deployOrg(_orgId2, "salt");
+        Org _org2 = orgFundFactory.deployOrg(_orgId2, "salt2");
         vm.startPrank(actor);
         vm.expectEmit(true, false, false, false);
         emit DefaultDonationFeeSet(OrgType, 10);
@@ -302,7 +303,7 @@ contract RegistrySetTransferFeeSenderOverride is RegistryTest {
         vm.assume( (_fee > 0) && (_fee < (type(uint32).max-1)) );
         address actor = actors[_actor % actors.length];
         Fund _fund1 = orgFundFactory.deployFund(_manager1, "salt");
-        Fund _fund2 = orgFundFactory.deployFund(_manager2, "salt");
+        Fund _fund2 = orgFundFactory.deployFund(_manager2, "salt2");
         Org _org = orgFundFactory.deployOrg(_orgId, "salt");
         vm.startPrank(actor);
         vm.expectEmit(true, true, false, false);
@@ -321,7 +322,7 @@ contract RegistrySetTransferFeeSenderOverride is RegistryTest {
         vm.assume(_manager1 != _manager2);
         address actor = actors[_actor % actors.length];
         Fund _fund1 = orgFundFactory.deployFund(_manager1, "salt");
-        Fund _fund2 = orgFundFactory.deployFund(_manager2, "salt");
+        Fund _fund2 = orgFundFactory.deployFund(_manager2, "salt2");
         Org _org = orgFundFactory.deployOrg(_orgId, "salt");
         vm.startPrank(actor);
         vm.expectEmit(true, true, false, false);
@@ -370,7 +371,7 @@ contract RegistrySetTransferFeeReceiverOverride is RegistryTest {
         address actor = actors[_actor % actors.length];
         Fund _fund = orgFundFactory.deployFund(_manager, "salt");
         Org _org1 = orgFundFactory.deployOrg(_orgId1, "salt");
-        Org _org2 = orgFundFactory.deployOrg(_orgId2, "salt");
+        Org _org2 = orgFundFactory.deployOrg(_orgId2, "salt2");
         vm.startPrank(actor);
         vm.expectEmit(true, true, false, false);
         emit DefaultTransferFeeSet(FundType, OrgType, _fee + 1);
@@ -389,7 +390,7 @@ contract RegistrySetTransferFeeReceiverOverride is RegistryTest {
         address actor = actors[_actor % actors.length];
         Fund _fund = orgFundFactory.deployFund(_manager, "salt");
         Org _org1 = orgFundFactory.deployOrg(_orgId1, "salt");
-        Org _org2 = orgFundFactory.deployOrg(_orgId2, "salt");
+        Org _org2 = orgFundFactory.deployOrg(_orgId2, "salt2");
         vm.startPrank(actor);
         vm.expectEmit(true, true, false, false);
         emit DefaultTransferFeeSet(FundType, OrgType, 10);

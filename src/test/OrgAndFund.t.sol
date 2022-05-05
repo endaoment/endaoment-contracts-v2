@@ -7,23 +7,55 @@ import "../Org.sol";
 import "../Fund.sol";
 
 contract OrgTest is DeployTest {
+
+    // Shadows EndaomentAuth.
+    error AlreadyInitialized();
+
     Org public org;
+
     function setUp() public override {
         super.setUp();
-        org = new Org(globalTestRegistry, "11-11-1111");
+        org = new Org();
+        org.initialize(globalTestRegistry, bytes32("11-11-1111"));
     }
 }
 
-contract OrgConstructor is OrgTest {
-    function testFuzz_OrgConstructor(bytes32 _orgId) public {
-        Org _org = new Org(globalTestRegistry, _orgId);
+contract OrgInitializer is OrgTest {
+
+    function testFuzz_OrgInitializer(bytes32 _orgId) public {
+        Org _org = new Org();
+        _org.initialize(globalTestRegistry, _orgId);
         assertEq(_org.entityType(), 1);
+        assertEq(_org.manager(), address(0));
+        assertEq(_org.orgId(), _orgId);
+    }
+
+    function testFuzz_CannotCallOrgInitializerTwice(bytes32 _orgId) public {
+        Org _org = new Org();
+        _org.initialize(globalTestRegistry, _orgId);
+
+        // Attempt to call Org initializer
+        vm.expectRevert(AlreadyInitialized.selector);
+        _org.initialize(globalTestRegistry, bytes32("newId"));
+
+        // Attempt to call Entity initializer
+        vm.expectRevert(AlreadyInitialized.selector);
+        _org.initialize(globalTestRegistry, address(0xbeefcafe));
+
+        // Attempt to call EndaomentAuth initializer
+        vm.expectRevert(AlreadyInitialized.selector);
+        _org.initialize(globalTestRegistry, bytes32("beef_cafe"));
+
+        assertEq(_org.entityType(), 1);
+        assertEq(_org.manager(), address(0));
+        assertEq(_org.orgId(), _orgId);
     }
 }
 
 contract OrgSetOrgId is OrgTest {
+
     address[] public actors = [board, capitalCommittee];
-    
+
     function testFuzz_SetOrgId(address _manager, bytes32 _newOrgId, uint _actor) public {
         address actor = actors[_actor % actors.length];
         vm.prank(board);
@@ -41,12 +73,31 @@ contract OrgSetOrgId is OrgTest {
     }
 }
 
-contract FundTest is DeployTest {
-}
+contract FundInitializer is DeployTest {
 
-contract FundConstructor is FundTest {
-    function testFuzz_FundConstructor(address _manager) public {
-        Fund _fund = new Fund(globalTestRegistry, _manager);
+    // Shadows EndaomentAuth.
+    error AlreadyInitialized();
+
+    function testFuzz_FundInitializer(address _manager) public {
+        Fund _fund = new Fund();
+        _fund.initialize(globalTestRegistry, _manager);
         assertEq(_fund.entityType(), 2);
+        assertEq(_fund.manager(), _manager);
+    }
+
+    function testFuzz_CannotCallFundInitializerTwice(address _manager) public {
+        Fund _fund = new Fund();
+        _fund.initialize(globalTestRegistry, _manager);
+
+        // Attempt to call Entity initializer
+        vm.expectRevert(AlreadyInitialized.selector);
+        _fund.initialize(globalTestRegistry, address(0xbeefcafe));
+
+        // Attempt to call EndaomentAuth initializer
+        vm.expectRevert(AlreadyInitialized.selector);
+        _fund.initialize(globalTestRegistry, "beef_cafe");
+
+        assertEq(_fund.entityType(), 2);
+        assertEq(_fund.manager(), _manager);
     }
 }
