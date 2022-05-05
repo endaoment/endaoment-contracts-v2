@@ -18,6 +18,7 @@ contract RegistryTest is DeployTest {
     event TransferFeeReceiverOverrideSet(uint8 indexed fromEntityType, address indexed toEntity, uint32 fee);
     event SwapWrapperStatusSet(address indexed swapWrapper, bool isActive);
     event PortfolioStatusSet(address indexed portfolio, bool isActive);
+    event TreasuryChanged(address oldTreasury, address indexed newTreasury);
 }
 
 contract RegistryConstructor is RegistryTest {
@@ -27,6 +28,25 @@ contract RegistryConstructor is RegistryTest {
         assertEq(_registry.owner(), _admin);
         assertEq(_registry.treasury(), _treasury);
         assertEq(address(_registry.baseToken()), _baseToken);
+    }
+}
+
+contract RegistrySetTreasury is RegistryTest {
+
+    address[] public actors = [board];
+    function testFuzzSetTreasurySuccess(address _newTreasuryAddress, uint _actor) public {
+        vm.expectEmit(true, true, false, false);
+        emit TreasuryChanged(globalTestRegistry.treasury(), _newTreasuryAddress);
+        address actor = actors[_actor % actors.length];
+        vm.prank(actor);
+        globalTestRegistry.setTreasury(_newTreasuryAddress);
+        assertEq(_newTreasuryAddress, globalTestRegistry.treasury());
+    }
+
+    function testFuzzSetTreasuryFailUnauthorized(address _newTreasuryAddress) public {
+        vm.prank(user1);
+        vm.expectRevert(Unauthorized.selector);
+        globalTestRegistry.setTreasury(_newTreasuryAddress);
     }
 }
 

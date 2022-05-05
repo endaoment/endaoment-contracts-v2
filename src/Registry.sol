@@ -78,6 +78,9 @@ contract Registry is RolesAuthority {
     /// @notice Emitted when a transfer fee override is set for transfers from an entityType to an entity.
     event TransferFeeReceiverOverrideSet(uint8 indexed fromEntityType, address indexed toEntity, uint32 fee);
 
+    /// @notice Emitted when the registry treasury contract is changed
+    event TreasuryChanged(address oldTreasury, address indexed newTreasury);
+
     /**
      * @notice Modifier for methods that require auth and that the manager cannot access.
      * @dev Overridden from Auth.sol. Reason: use custom error.
@@ -113,6 +116,15 @@ contract Registry is RolesAuthority {
     }
 
     // --- External fns ---
+
+    /**
+     * @notice Sets a new Endaoment treasury address.
+     * @param _newTreasury The new treasury.
+     */
+     function setTreasury(address _newTreasury) external requiresAuth {
+         emit TreasuryChanged(treasury, _newTreasury);
+         treasury = _newTreasury;
+     }
 
     /**
      * @notice Sets the approval state of a factory. Grants the factory permissions to set entity status.

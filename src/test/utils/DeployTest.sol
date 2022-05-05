@@ -31,6 +31,7 @@ contract DeployTest is DeployAll, DSTestPlus {
   bytes4 public setDefaultTransferFee = bytes4(keccak256("setDefaultTransferFee(uint8,uint8,uint32)"));
   bytes4 public setTransferFeeSenderOverride = bytes4(keccak256("setTransferFeeSenderOverride(address,uint8,uint32)"));
   bytes4 public setTransferFeeReceiverOverride = bytes4(keccak256("setTransferFeeReceiverOverride(uint8,address,uint32)"));
+  bytes4 public setTreasury = bytes4(keccak256("setTreasury(address)"));
 
   // Entity operations
   bytes4 public entityTransfer = bytes4(keccak256("transfer(address,uint256)"));
