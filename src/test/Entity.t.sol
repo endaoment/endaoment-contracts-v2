@@ -38,22 +38,11 @@ contract EntitySetManager is DeployTest {
         Fund _fund = orgFundFactory.deployFund(_manager, "salt");
         vm.expectRevert(Unauthorized.selector);
         _fund.setManager(_newManager);
-    } 
+    }
 }
 
-// This abstract test contract acts as a harness to test common features of all Entity types.
-// Concrete test contracts that inherit from contract to test a specific entity type need only set the Entity type
-//  to be tested and deploy their specific entity to be subjected to the tests.
-abstract contract EntityDonateTransferTest is DeployTest {
-    using stdStorage for StdStorage;
-    Entity entity;
+contract EntityHarness is DeployTest {
     Entity receivingEntity;
-    uint8 testEntityType;
-    uint32 internal constant onePercentZoc = 100;
-
-    event EntityDonationReceived(address indexed from, address indexed to, uint256 amount, uint256 fee);
-    event EntityFundsTransferred(address indexed from, address indexed to, uint256 amountReceived, uint256 amountFee);
-    event EntityBalanceReconciled(address indexed entity, uint256 amountReceived, uint256 amountFee);
 
     // local helper function to pick a receiving entity type for transfers, given an _entityType from the fuzzer
     //  (sets the instance variable receivingEntity as a side-effect)
@@ -68,6 +57,20 @@ abstract contract EntityDonateTransferTest is DeployTest {
         }
         return _receivingType;
     }
+}
+
+// This abstract test contract acts as a harness to test common features of all Entity types.
+// Concrete test contracts that inherit from contract to test a specific entity type need only set the Entity type
+//  to be tested and deploy their specific entity to be subjected to the tests.
+abstract contract EntityDonateTransferTest is EntityHarness {
+    using stdStorage for StdStorage;
+    Entity entity;
+    uint8 testEntityType;
+    uint32 internal constant onePercentZoc = 100;
+
+    event EntityDonationReceived(address indexed from, address indexed to, uint256 amount, uint256 fee);
+    event EntityFundsTransferred(address indexed from, address indexed to, uint256 amountReceived, uint256 amountFee);
+    event EntityBalanceReconciled(address indexed entity, uint256 amountReceived, uint256 amountFee);
 
     // Test a normal donation to an entity from a donor.
     function testFuzz_DonateSuccess(address _donor, uint256 _donationAmount, uint256 _feePercent, bool _isActive) public {
@@ -499,5 +502,158 @@ contract FundDonateTransferTest is EntityDonateTransferTest {
         super.setUp();
         entity = orgFundFactory.deployFund(address(0x1111), "someSalt");
         testEntityType = FundType;
+    }
+}
+
+contract CallAsEntityTest is EntityHarness {
+
+    error CallFailed(bytes response);
+
+    error AlwaysReverts();
+
+    function alwaysRevertsCustom() external pure {
+        revert AlwaysReverts();
+    }
+
+    function alwaysRevertsString() external pure {
+        revert("ALWAYS_REVERT");
+    }
+
+    function alwaysRevertsSilently() external pure {
+        revert();
+    }
+
+    function testFuzz_CanCallAsEntity(uint8 _entityType, address _manager, address _receiver, uint256 _amount) public {
+        _amount = bound(_amount, 1, type(uint256).max);
+        uint256 _initialBalance = baseToken.balanceOf(_receiver);
+
+        // Deploy an entity and give it tokens directly
+        _deployEntity(_entityType, _manager);
+        baseToken.mint(address(receivingEntity), _amount);
+
+        // Transfer tokens out via callAsEntity method
+        bytes memory _data = abi.encodeCall(baseToken.transfer, (_receiver, _amount));
+        vm.prank(board);
+        bytes memory _returnData = receivingEntity.callAsEntity(address(baseToken), 0, _data);
+        (bool _transferSuccess) = abi.decode(_returnData, (bool));
+
+        assertTrue(_transferSuccess);
+        assertEq(baseToken.balanceOf(_receiver) - _initialBalance, _amount);
+    }
+
+    function testFuzz_CallAsEntityForwardsRevertString(
+        uint8 _entityType,
+        address _manager
+    ) public {
+        _deployEntity(_entityType, _manager);
+
+        // Bytes precalculated for this revert string.
+        bytes memory _expectedRevert = abi.encodeWithSelector(
+            CallFailed.selector,
+            hex"08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000"
+            hex"000000000000000000000000000000000d414c574159535f52455645525400000000000000000000000000000000000000"
+        );
+
+        // Call a method that reverts and verify the data is forwarded.
+        bytes memory _data = abi.encodeCall(this.alwaysRevertsString, ());
+        vm.prank(board);
+        vm.expectRevert(_expectedRevert);
+        receivingEntity.callAsEntity(address(this), 0, _data);
+    }
+
+    function testFuzz_CallAsEntityForwardsCustomError(
+        uint8 _entityType,
+        address _manager
+    ) public {
+        _deployEntity(_entityType, _manager);
+
+        // Bytes precalculated for this custom error.
+        bytes memory _expectedRevert = abi.encodeWithSelector(CallFailed.selector, hex"47e794ec");
+
+        // Call a method that reverts and verify the data is forwarded.
+        bytes memory _data = abi.encodeCall(this.alwaysRevertsCustom, ());
+        vm.prank(board);
+        vm.expectRevert(_expectedRevert);
+        receivingEntity.callAsEntity(address(this), 0, _data);
+    }
+
+    function testFuzz_CallAsEntityForwardsSilentRevert(
+        uint8 _entityType,
+        address _manager
+    ) public {
+        _deployEntity(_entityType, _manager);
+
+        // A silent error has no additional bytes.
+        bytes memory _expectedRevert = abi.encodeWithSelector(CallFailed.selector, "");
+
+        // Call a method that reverts and no data is forwarded.
+        bytes memory _data = abi.encodeCall(this.alwaysRevertsSilently, ());
+        vm.prank(board);
+        vm.expectRevert(_expectedRevert);
+        receivingEntity.callAsEntity(address(this), 0, _data);
+    }
+
+    function testFuzz_ManagerCannotCallAsEntity(
+        uint8 _entityType,
+        address _manager,
+        address _receiver,
+        uint256 _amount
+    ) public {
+        _amount = bound(_amount, 1, type(uint256).max - 1);
+        vm.assume(_manager != board);
+
+        // Deploy an entity and give it tokens directly
+        _deployEntity(_entityType, _manager);
+        baseToken.mint(address(receivingEntity), _amount);
+
+        // Attempt to transfer tokens out via callAsEntity method as the manager
+        bytes memory _data = abi.encodeCall(baseToken.transfer, (_receiver, _amount));
+        vm.prank(_manager);
+        vm.expectRevert(Unauthorized.selector);
+        receivingEntity.callAsEntity(address(baseToken), 0, _data);
+    }
+
+    function testFuzz_CanCallAsEntityToSendETH(
+        uint8 _entityType,
+        address _manager,
+        address _receiver,
+        uint256 _amount
+    ) public {
+        // ensure the fuzzer hasn't picked one of our contracts, which won't have a fallback
+        vm.assume(address(_receiver).code.length == 0);
+
+        uint256 _initialBalance = _receiver.balance;
+
+        // Deploy an entity and give it an ETH balance
+        _deployEntity(_entityType, _manager);
+        vm.deal(address(receivingEntity), _amount);
+
+        // Use callAsEntity to send ETH to receiver
+        vm.prank(board);
+        receivingEntity.callAsEntity(_receiver, _amount, "");
+
+        assertEq(address(_receiver).balance - _initialBalance, _amount);
+    }
+
+    function testFuzz_CanCallAsEntityToForwardETH(
+        uint8 _entityType,
+        address _manager,
+        address _receiver,
+        uint256 _amount
+    ) public {
+        // ensure the fuzzer hasn't picked one of our contracts, which won't have a fallback
+        vm.assume(address(_receiver).code.length == 0);
+
+        uint256 _initialBalance = _receiver.balance;
+
+        // Deploy an entity and give it an ETH balance
+        _deployEntity(_entityType, _manager);
+        vm.deal(board, _amount);
+
+        // Use callAsEntity to send ETH to receiver
+        vm.prank(board);
+        receivingEntity.callAsEntity{value: _amount}(_receiver, _amount, "");
+
+        assertEq(address(_receiver).balance - _initialBalance, _amount);
     }
 }

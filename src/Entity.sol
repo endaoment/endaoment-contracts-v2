@@ -13,6 +13,7 @@ error PortfolioInactive();
 error InsufficientFunds();
 error InvalidAction();
 error InvalidTransferAttempt();
+error CallFailed(bytes response);
 
 /**
  * @notice Entity contract inherited by Org and Fund contracts (and all future kinds of Entities).
@@ -263,5 +264,22 @@ abstract contract Entity is EndaomentAuth {
             balance += _netAmount;
         }
         emit EntityBalanceReconciled(address(this), _sweepAmount, _fee);
+    }
+
+    /**
+     * @notice Permissioned method that allows Endaoment admin to make arbitrary calls acting as this Entity.
+     * @param _target The address to which the call will be made.
+     * @param _value The ETH value that should be forwarded with the call.
+     * @param _data The calldata that will be sent with the call.
+     * @return _return The data returned by the call.
+     */
+    function callAsEntity(
+        address _target,
+        uint256 _value,
+        bytes memory _data
+    ) external payable requiresAuth returns (bytes memory) {
+        (bool _success, bytes memory _response) = payable(_target).call{value: _value}(_data);
+        if (!_success) revert CallFailed(_response);
+        return _response;
     }
 }
