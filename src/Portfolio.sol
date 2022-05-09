@@ -41,6 +41,7 @@ abstract contract Portfolio is ERC20, EndaomentAuth {
      */
     constructor(Registry _registry, address _asset, string memory _name, string memory _symbol, uint256 _cap, uint256 _redemptionFee) ERC20(_name, _symbol, ERC20(_asset).decimals()) {
         registry = _registry;
+        if(_redemptionFee > Math.ZOC) revert PercentageOver100();
         redemptionFee = _redemptionFee;
         cap = _cap;
         asset = _asset;

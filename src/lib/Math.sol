@@ -27,6 +27,15 @@ library Math {
         return mulDivDown(x, WAD, y); // Equivalent to (x * WAD) / y rounded down.
     }
 
+    // For tokens with 6 decimals like USDC, these scale by 1e6 (one million).
+    function mulMilDown(uint256 x, uint256 y) internal pure returns (uint256) {
+        return mulDivDown(x, y, 1e6); // Equivalent to (x * y) / 1e6 rounded down.
+    }
+
+    function divMilDown(uint256 x, uint256 y) internal pure returns (uint256) {
+        return mulDivDown(x, 1e6, y); // Equivalent to (x * 1e6) / y rounded down.
+    }
+
     /*//////////////////////////////////////////////////////////////
                     LOW LEVEL FIXED POINT OPERATIONS
     //////////////////////////////////////////////////////////////*/

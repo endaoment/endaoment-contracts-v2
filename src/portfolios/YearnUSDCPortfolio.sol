@@ -4,22 +4,22 @@ pragma solidity ^0.8.12;
 import { Registry } from "../Registry.sol";
 import { Entity } from "../Entity.sol";
 import { Portfolio } from "../Portfolio.sol";
-import { ICErc20 } from "../interfaces/ICErc20.sol";
+import { IYVault } from "../interfaces/IYVault.sol";
 import { Auth } from "../lib/auth/Auth.sol";
 import { Math } from "../lib/Math.sol";
 import { ERC20 } from "solmate/tokens/ERC20.sol";
 import { SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
 
-contract CompoundUSDCPortfolio is Portfolio {
+contract YearnUSDCPortfolio is Portfolio {
     using SafeTransferLib for ERC20;
     using Math for uint256;
 
-    ICErc20 public constant cusdc = ICErc20(0x39AA39c021dfbaE8faC545936693aC917d5E7563);
+    IYVault public constant yvUsdc = IYVault(0xa354F35829Ae975e850e23e9615b11Da1B3dC4DE);
     ERC20 public immutable usdc;
 
     error AssetMismatch();
-    error CompoundError(uint256 errorCode);
     error RoundsToZero();
+    error TooFewAssets();
 
     /**
      * @param _registry Endaoment registry.
@@ -32,45 +32,17 @@ contract CompoundUSDCPortfolio is Portfolio {
         address _asset,
         uint256 _cap,
         uint256 _redemptionFee
-    ) Portfolio(_registry, _asset, "Compound USDC Portfolio Shares", "cUSDC-PS", _cap, _redemptionFee) {
+    ) Portfolio(_registry, _asset, "Yearn USDC Vault Portfolio Shares", "yvUSDC-PS", _cap, _redemptionFee) {
         usdc = registry.baseToken();
-        if (address(usdc) != cusdc.underlying()) revert AssetMismatch(); // Sanity check.
-        usdc.approve(address(cusdc), type(uint256).max);
+        if (address(usdc) != yvUsdc.token()) revert AssetMismatch(); // Sanity check.
+        usdc.approve(address(yvUsdc), type(uint256).max);
     }
 
     /**
-     * @notice Returns the USDC value of all cUSDC held by this contract.
+     * @notice Returns the USDC value of all yvUsdc held by this contract.
      */
     function totalAssets() public view override returns (uint256) {
-        return convertToUsdc(cusdc.balanceOf(address(this)));
-    }
-
-    /**
-     * @notice Returns the current Compound exchange rate.
-     * @dev Compound does not provide a way to get this data as a view method, so we implement it ourselves.
-     */
-    function compoundExchangeRateCurrent() public view returns (uint256) {
-        // If interest accrued in this block, we can use the stored exchange rate.
-        uint256 _blockDelta = block.number - cusdc.accrualBlockNumber();
-        if (_blockDelta == 0) return cusdc.exchangeRateStored();
-
-        // Otherwise, compute it as (cash + borrows - reserves) / totalSupply. We start by getting stored data.
-        uint256 _cash = cusdc.getCash();
-        uint256 _borrows = cusdc.totalBorrows();
-        uint256 _reserves = cusdc.totalReserves();
-        uint256 _supply = cusdc.totalSupply();
-        uint256 _reserveFactor = cusdc.reserveFactorMantissa();
-        uint256 _borrowRate = cusdc.borrowRatePerBlock();
-
-        // Compute accumulated interest.
-        uint256 _interest = (_borrowRate * _blockDelta).mulWadDown(_borrows);
-
-        // Update total borrows and reserves accordingly.
-        _borrows += _interest;
-        _reserves += _reserveFactor.mulWadDown(_interest);
-
-        // Return the exchange rate.
-        return (_cash + _borrows - _reserves).divWadDown(_supply);
+        return convertToUsdc(yvUsdc.balanceOf(address(this)));
     }
 
     /**
@@ -78,10 +50,12 @@ contract CompoundUSDCPortfolio is Portfolio {
      * @param _amountAssets Amount of assets to take.
      */
     function takeFees(uint256 _amountAssets) external override requiresAuth {
-        uint256 _errorCode = cusdc.redeemUnderlying(_amountAssets);
-        if (_errorCode != 0) revert CompoundError(_errorCode);
+        uint256 _sharesEstimate = convertToYvUsdc(_amountAssets);
+        uint256 _assets = yvUsdc.withdraw(_sharesEstimate);
+        if (_assets < _amountAssets) revert TooFewAssets();
+
         ERC20(asset).safeTransfer(registry.treasury(), _amountAssets);
-        // TODO Emit event? STP doesn't emit one either.
+
     }
 
     /**
@@ -107,20 +81,29 @@ contract CompoundUSDCPortfolio is Portfolio {
     }
 
     /**
-     * @notice Converts a quantity of cUSDC to USDC
+     * @notice Converts a quantity of yvUSDC to USDC.
      */
-    function convertToUsdc(uint256 _cUsdcAmount) public view returns (uint256) {
-        return compoundExchangeRateCurrent().mulWadDown(_cUsdcAmount);
+    function convertToUsdc(uint256 _yvUsdcAmount) public view returns (uint256) {
+        return _yvUsdcAmount.mulMilDown(yvUsdc.pricePerShare());
+    }
+
+    /**
+     * @notice Converts a quantity of USDC to yvUSDC.
+     */
+    function convertToYvUsdc(uint256 _usdcAmount) public view returns (uint256) {
+        return _usdcAmount.divMilDown(yvUsdc.pricePerShare());
     }
 
     /**
      * @inheritdoc Portfolio
-     * @dev Deposit the specified number of base token assets, which are deposited into Compound. The `_data`
+     * @dev Deposit the specified number of base token assets, which are deposited into Yearn. The `_data`
      * parameter is unused.
      */
     function deposit(uint256 _amountBaseToken, bytes calldata /* _data */) external override returns (uint256) {
         if(!_isEntity(Entity(msg.sender))) revert NotEntity();
         if(totalAssets() + _amountBaseToken > cap) revert ExceedsCap();
+        if (_amountBaseToken > yvUsdc.availableDepositLimit()) revert ExceedsCap();
+
         uint256 _shares = convertToShares(_amountBaseToken);
         if (_shares == 0) revert RoundsToZero();
 
@@ -128,33 +111,28 @@ contract CompoundUSDCPortfolio is Portfolio {
         _mint(msg.sender, _shares);
         emit Deposit(msg.sender, msg.sender, _amountBaseToken, _shares);
 
-        uint256 _errorCode = cusdc.mint(_amountBaseToken);
-        if (_errorCode != 0) revert CompoundError(_errorCode);
-
+        yvUsdc.deposit(_amountBaseToken);
         return _shares;
     }
 
      /**
      * @inheritdoc Portfolio
      * @dev Redeem the specified number of shares to get back the underlying base token assets, which are
-     * withdrawn from Compound. If the utilization of the Compound market is too high, there may be insufficient
-     * funds to redeem and this method will revert. The `_data` parameter is unused.
+     * withdrawn from Yearn. The `_data` parameter is unused.
      */
     function redeem(uint256 _amountShares, bytes calldata /* _data */) external override returns (uint256) {
-        uint256 _assets = convertToAssets(_amountShares);
+        uint256 _yearnShares = convertToYvUsdc(convertToAssets(_amountShares));
+        uint256 _assets = yvUsdc.withdraw(_yearnShares);
         if (_assets == 0) revert RoundsToZero();
-
-        uint256 _errorCode = cusdc.redeemUnderlying(_assets);
-        if (_errorCode != 0) revert CompoundError(_errorCode);
 
         _burn(msg.sender, _amountShares);
 
         uint256 _fee;
         uint256 _netAmount;
         unchecked {
-            // unchecked as no possibility of overflow with baseToken precision
+            // unchecked as no possibility of overflow with baseToken precision and redemption fee bound
             _fee = _assets.zocmul(redemptionFee);
-            // unchecked as the _feeMultiplier check with revert above protects against overflow
+            // unchecked as the redemptionFee bound means _fee is guaranteed to be smaller than _assets
             _netAmount = _assets - _fee;
         }
         usdc.safeTransfer(registry.treasury(), _fee);
@@ -164,10 +142,9 @@ contract CompoundUSDCPortfolio is Portfolio {
     }
 
     /**
-     * @notice Deposits stray USDC for the benefit of everyone else
+     * @notice Deposits stray USDC for the benefit of everyone else.
      */
     function sync() external requiresAuth {
-        uint256 _errorCode = cusdc.mint(usdc.balanceOf(address(this)));
-        if (_errorCode != 0) revert CompoundError(_errorCode);
+        yvUsdc.deposit(usdc.balanceOf(address(this)));
     }
 }
