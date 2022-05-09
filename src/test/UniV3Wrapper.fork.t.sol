@@ -18,7 +18,7 @@ abstract contract UniV3WrapperTest is DeployTest {
     bool logAmountOut = false;
 
     address eth  = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
-    address wbtc = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599; 
+    address wbtc = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;
     address usdc = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
     address usdt = 0xdAC17F958D2ee523a2206206994597C13D831ec7;
     address dai  = 0x6B175474E89094C44Da98b954EedeAC495271d0F;
@@ -55,7 +55,7 @@ abstract contract UniV3WrapperTest is DeployTest {
             vm.expectEmit(true, true, true, true);
             emit WrapperSwapExecuted(_tokenIn, _tokenOut, sender, receiver, _amountIn, _amountOutExpected);
             vm.prank(sender);
-            _amountOut = uniV3SwapWrapper.swap{value:_amountIn}(_tokenIn, _tokenOut, sender, receiver, _amountIn, _data);
+            _amountOut = uniV3SwapWrapper.swap{value:_amountIn}(_tokenIn, _tokenOut, receiver, _amountIn, _data);
         } else {
             deal(_tokenIn, sender, _amountIn);
             // To make sure this wrapper works even if an approval has been preset, prank a pre-existing approval
@@ -66,10 +66,10 @@ abstract contract UniV3WrapperTest is DeployTest {
             bytes memory _data = abi.encode(uint24(fee), uint256(1649787227), uint256(0), uint160(0));
             vm.expectEmit(true, true, true, true);
             emit WrapperSwapExecuted(_tokenIn, _tokenOut, sender, receiver, _amountIn, _amountOutExpected);
-            
+
             vm.startPrank(sender);
             ERC20(_tokenIn).safeApprove(address(uniV3SwapWrapper), _amountIn);
-            _amountOut = uniV3SwapWrapper.swap(_tokenIn, _tokenOut, sender, receiver, _amountIn, _data);
+            _amountOut = uniV3SwapWrapper.swap(_tokenIn, _tokenOut, receiver, _amountIn, _data);
             vm.stopPrank();
         }
         if(_tokenOut == eth) {
@@ -84,7 +84,6 @@ abstract contract UniV3WrapperTest is DeployTest {
         }
         assertEq(_amountOut, _amountOutExpected);
         assertEq(ERC20(_tokenOut).balanceOf(receiver), _amountOut);
-    
     }
 }
 contract UsdcDaiSwapTest is UniV3WrapperTest {

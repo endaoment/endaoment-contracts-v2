@@ -15,6 +15,7 @@ abstract contract Portfolio is ERC20, EndaomentAuth {
     uint256 public redemptionFee;
     address public immutable asset;
 
+    error InvalidSwapper();
     error TransferDisallowed();
     error NotEntity();
     error ExceedsCap();

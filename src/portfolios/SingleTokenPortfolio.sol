@@ -74,13 +74,16 @@ contract SingleTokenPortfolio is Portfolio {
      * To determine if this deposit exceeds the cap, we get the asset/baseToken exchange rate and multiply it by `totalAssets`.
      */ 
     function deposit(uint256 _amountBaseToken, bytes calldata _data) external override returns (uint256) {
-        if(!_isEntity(Entity(msg.sender))) revert NotEntity();
+        if (!_isEntity(Entity(msg.sender))) revert NotEntity();
+
         ISwapWrapper _swapWrapper = ISwapWrapper(address(bytes20(_data[:20])));
+        if (!registry.isSwapperSupported(_swapWrapper)) revert InvalidSwapper();
+
         ERC20 _baseToken = registry.baseToken();
         _baseToken.safeTransferFrom(msg.sender, address(this), _amountBaseToken);
         _baseToken.safeApprove(address(_swapWrapper), 0);
         _baseToken.safeApprove(address(_swapWrapper), _amountBaseToken);
-        uint256 _assets = registry.swap(address(_baseToken), asset, address(this), address(this), _amountBaseToken, ISwapWrapper(_swapWrapper), _data[20:]);
+        uint256 _assets = _swapWrapper.swap(address(_baseToken), asset, address(this), _amountBaseToken, _data[20:]);
         totalAssets += _assets;
         // Convert totalAssets to baseToken unit to measure against cap.
         if(totalAssets * _amountBaseToken / _assets > cap) revert ExceedsCap();
@@ -98,12 +101,15 @@ contract SingleTokenPortfolio is Portfolio {
      */ 
     function redeem(uint256 _amountShares, bytes calldata _data) external override returns (uint256) {
         ERC20 _baseToken = registry.baseToken();
+
         ISwapWrapper _swapWrapper = ISwapWrapper(address(bytes20(_data[:20])));
+        if (!registry.isSwapperSupported(_swapWrapper)) revert InvalidSwapper();
+
         _burn(msg.sender, _amountShares);
         uint256 _assetsOut = convertToAssets(_amountShares);
         totalAssets -= _assetsOut;
         ERC20(asset).approve(address(_swapWrapper), _assetsOut);
-        uint256 _baseTokenOut = registry.swap(asset, address(_baseToken), address(this), address(this), _assetsOut, _swapWrapper, _data[32:]);
+        uint256 _baseTokenOut = _swapWrapper.swap(asset, address(_baseToken), address(this), _assetsOut, _data[32:]);
         uint256 _fee;
         uint256 _netAmount;
         unchecked {

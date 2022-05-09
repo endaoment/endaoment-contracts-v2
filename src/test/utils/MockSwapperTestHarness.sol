@@ -11,7 +11,7 @@ import "forge-std/console2.sol";
 contract MockSwapperTestHarness is DeployTest {
     using SafeTransferLib for ERC20;
     MockSwapWrapper mockSwapWrapper;
-    ERC20 testToken1;
+    MockERC20 testToken1;
 
     function setUp() public override virtual {
         super.setUp();
@@ -32,19 +32,19 @@ contract MockSwapWrapper is ISwapWrapper, DSTestPlus {
         amountOut = _amountOut;
     }
 
-    function swap(address _tokenIn, address _tokenOut, address _sender, address _recipient, uint256 _amount, bytes calldata /** _data */) external payable returns (uint256) {
+    function swap(address _tokenIn, address _tokenOut, address _recipient, uint256 _amount, bytes calldata /** _data */) external payable returns (uint256) {
          // If token is ETH and value was sent, ensure the value matches the swap input amount.
         bool _isInputEth = _tokenIn == eth;
         bool _isOutputEth = _tokenOut == eth;
         // If caller isn't sending ETH, we need to transfer in tokens and approve the router
         if(_isInputEth && msg.value == 0) revert ETHAmountInMismatch();
         if (!_isInputEth) {
-            ERC20(_tokenIn).safeTransferFrom(_sender, address(this), _amount);
+            ERC20(_tokenIn).safeTransferFrom(msg.sender, address(this), _amount);
         }
         if(_isOutputEth) {
             deal(_recipient, amountOut);
         } else {
-            deal(_tokenIn, _recipient, amountOut);
+            deal(_tokenOut, _recipient, amountOut);
         }
         return amountOut;
     }

@@ -62,7 +62,7 @@ contract Registry is RolesAuthority {
 
     /// @notice The event emitted when a portfolio is set active or inactive.
     event PortfolioStatusSet(address indexed portfolio, bool isActive);
-    
+
     /// @notice Emitted when a default donation fee is set for an entity type.
     event DefaultDonationFeeSet(uint8 indexed entityType, uint32 fee);
 
@@ -279,21 +279,5 @@ contract Registry is RolesAuthority {
     function setSwapWrapperStatus(ISwapWrapper _swapWrapper, bool _supported) external requiresAuth {
         isSwapperSupported[_swapWrapper] = _supported;
         emit SwapWrapperStatusSet(address(_swapWrapper), _supported);
-    }
-
-    /**
-     * @notice Swap function that must be used across the protocol.
-     * @param _tokenIn Token to be swapped (or 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE for ETH).
-     * @param _tokenOut Token to receive (or 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE for ETH).
-     * @param _sender Sender of `_tokenIn`.
-     * @param _recipient Reciever of `_tokenOut`.
-     * @param _amount Amount of `_tokenIn` that should be swapped.
-     * @param _swapWrapper The approved swap wrapper that should be used to execute the swap.
-     * @param _data Additional data that the swap wrapper may require to execute the swap.
-     * @return Amount of _tokenOut received.
-     */
-    function swap(address _tokenIn, address _tokenOut, address _sender, address _recipient, uint256 _amount, ISwapWrapper _swapWrapper, bytes calldata _data) external returns (uint256) {
-        if(!isSwapperSupported[_swapWrapper]) revert UnsupportedSwapper();
-        return ISwapWrapper(_swapWrapper).swap(_tokenIn, _tokenOut, _sender, _recipient, _amount, _data);
     }
 }

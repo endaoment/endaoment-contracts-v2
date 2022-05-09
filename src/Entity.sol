@@ -4,6 +4,7 @@ import "solmate/tokens/ERC20.sol";
 import "solmate/utils/SafeTransferLib.sol";
 
 import { Registry } from  "./Registry.sol";
+import { ISwapWrapper } from "./interfaces/ISwapWrapper.sol";
 import { EndaomentAuth } from "./lib/auth/EndaomentAuth.sol";
 import { Portfolio } from "./Portfolio.sol";
 import { Math } from "./lib/Math.sol";
@@ -34,6 +35,9 @@ abstract contract Entity is EndaomentAuth {
     /// @notice The current balance for the entity, denominated in the base token's units.
     uint256 public balance;
 
+    /// @notice Placeholder address used in swapping method to denote usage of ETH instead of a token.
+    address public constant ETH_PLACEHOLDER = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+
     /// @notice Emitted when manager is set.
     event EntityManagerSet(address indexed oldManager, address indexed newManager);
 
@@ -43,7 +47,7 @@ abstract contract Entity is EndaomentAuth {
     /// @notice Emitted when a transfer is made between entities.
     event EntityFundsTransferred(address indexed from, address indexed to, uint256 amountReceived, uint256 amountFee);
 
-    /// @notice Emitted when a basetoken reconciliation completes
+    /// @notice Emitted when a base token reconciliation completes
     event EntityBalanceReconciled(address indexed entity, uint256 amountReceived, uint256 amountFee);
 
     /// @notice Emitted when a portfolio deposit is made.
@@ -136,6 +140,79 @@ abstract contract Entity is EndaomentAuth {
             balance += _netAmount;
         }
         emit EntityDonationReceived(msg.sender, address(this), _amount, _fee);
+    }
+
+    /**
+     * @notice Receive a donated amount of ETH or ERC20 tokens, swaps them to base tokens, and adds the output to the
+     * entity's balance. Fee calculated using default rate and sent to treasury.
+     * @param _swapWrapper The swap wrapper to use for the donation. Must be whitelisted on the Registry.
+     * @param _tokenIn The address of the ERC20 token to swap and donate, or ETH_PLACEHOLDER if donating ETH.
+     * @param _amountIn The amount of tokens or ETH being swapped and donated.
+     * @param _data Additional call data required by the ISwapWrapper being used.
+     */
+    function swapAndDonate(
+        ISwapWrapper _swapWrapper,
+        address _tokenIn,
+        uint256 _amountIn,
+        bytes calldata _data
+    ) external payable {
+        uint32 _feeMultiplier = registry.getDonationFee(this);
+        _swapAndDonateWithFeeMultiplier(_swapWrapper, _tokenIn, _amountIn, _data, _feeMultiplier);
+    }
+
+    /**
+     * @notice Receive a donated amount of ETH or ERC20 tokens, swaps them to base tokens, and adds the output to the
+     * entity's balance. Fee calculated using override rate and sent to treasury.
+     * @param _swapWrapper The swap wrapper to use for the donation. Must be whitelisted on the Registry.
+     * @param _tokenIn The address of the ERC20 token to swap and donate, or ETH_PLACEHOLDER if donating ETH.
+     * @param _amountIn The amount of tokens or ETH being swapped and donated.
+     * @param _data Additional call data required by the ISwapWrapper being used.
+     */
+    function swapAndDonateWithOverrides(
+        ISwapWrapper _swapWrapper,
+        address _tokenIn,
+        uint256 _amountIn,
+        bytes calldata _data
+    ) external payable {
+        uint32 _feeMultiplier = registry.getDonationFeeWithOverrides(this);
+        _swapAndDonateWithFeeMultiplier(_swapWrapper, _tokenIn, _amountIn, _data, _feeMultiplier);
+    }
+
+    /// @dev Internal helper implementing swap and donate functionality for any fee multiplier provided.
+    function _swapAndDonateWithFeeMultiplier(
+        ISwapWrapper _swapWrapper,
+        address _tokenIn,
+        uint256 _amountIn,
+        bytes calldata _data,
+        uint32 _feeMultiplier
+    ) internal {
+        if (!registry.isSwapperSupported(_swapWrapper)) revert InvalidAction();
+
+        // THINK: do we need a re-entrancy guard on this method?
+        if (_tokenIn != ETH_PLACEHOLDER) {
+            ERC20(_tokenIn).safeTransferFrom(msg.sender, address(this), _amountIn);
+            ERC20(_tokenIn).safeApprove(address(_swapWrapper), 0);
+            ERC20(_tokenIn).safeApprove(address(_swapWrapper), _amountIn);
+        }
+
+        uint256 _amountOut = _swapWrapper.swap{value: msg.value}(
+            _tokenIn,
+            address(baseToken),
+            address(this),
+            _amountIn,
+            _data
+        );
+
+        (uint256 _netAmount, uint256 _fee) = _calculateFee(_amountOut, _feeMultiplier);
+
+        baseToken.safeTransfer(registry.treasury(), _fee);
+
+        unchecked {
+            // unchecked as no possibility of overflow with baseToken precision
+            balance += _netAmount;
+        }
+
+        emit EntityDonationReceived(msg.sender, address(this), _amountOut, _fee);
     }
 
     /**
@@ -261,9 +338,56 @@ abstract contract Entity is EndaomentAuth {
             }
 
             baseToken.safeTransfer(registry.treasury(), _fee);
-            balance += _netAmount;
+            unchecked {
+                balance += _netAmount;
+            }
         }
         emit EntityBalanceReconciled(address(this), _sweepAmount, _fee);
+    }
+
+    /**
+     * @notice Takes stray tokens or ETH sent directly to this Entity, swaps them for base token, then adds them to the
+     * Entity's balance after paying the appropriate fee to the treasury.
+     * @param _swapWrapper The swap wrapper to use to convert the assets. Must be whitelisted on the Registry.
+     * @param _tokenIn The address of the ERC20 token to swap, or ETH_PLACEHOLDER if ETH.
+     * @param _amountIn The amount of tokens or ETH being swapped and added to the balance.
+     * @param _data Additional call data required by the ISwapWrapper being used.
+     */
+    function swapAndReconcileBalance(
+        ISwapWrapper _swapWrapper,
+        address _tokenIn,
+        uint256 _amountIn,
+        bytes calldata _data
+    ) external requiresManager {
+        if (!registry.isSwapperSupported(_swapWrapper)) revert InvalidAction();
+
+        uint32 _feeMultiplier = registry.getDonationFeeWithOverrides(this);
+
+        if (_tokenIn != ETH_PLACEHOLDER) {
+            ERC20(_tokenIn).safeApprove(address(_swapWrapper), 0);
+            ERC20(_tokenIn).safeApprove(address(_swapWrapper), _amountIn);
+        }
+
+        // Send value only if token in is ETH
+        uint256 _value = _tokenIn == ETH_PLACEHOLDER ? _amountIn : 0;
+
+        uint256 _amountOut = _swapWrapper.swap{value: _value}(
+            _tokenIn,
+            address(baseToken),
+            address(this),
+            _amountIn,
+            _data
+        );
+
+        (uint256 _netAmount, uint256 _fee) = _calculateFee(_amountOut, _feeMultiplier);
+        baseToken.safeTransfer(registry.treasury(), _fee);
+
+        unchecked {
+            // unchecked as no possibility of overflow with baseToken precision
+            balance += _netAmount;
+        }
+
+        emit EntityBalanceReconciled(address(this), _amountOut, _fee);
     }
 
     /**
@@ -281,5 +405,19 @@ abstract contract Entity is EndaomentAuth {
         (bool _success, bytes memory _response) = payable(_target).call{value: _value}(_data);
         if (!_success) revert CallFailed(_response);
         return _response;
+    }
+
+    /// @dev Internal helper method to calculate the fee on a base token amount for a given fee multiplier.
+    function _calculateFee( // TODO: use this in the rest of the contract.
+        uint256 _amount,
+        uint32 _feeMultiplier
+    ) internal pure returns (uint256 _netAmount, uint256 _fee) {
+        if (_feeMultiplier > Math.ZOC) revert InvalidAction();
+        unchecked {
+            // unchecked as no possibility of overflow with baseToken precision
+            _fee = _amount.zocmul(_feeMultiplier);
+            // unchecked as the _feeMultiplier check with revert above protects against overflow
+            _netAmount = _amount - _fee;
+        }
     }
 }

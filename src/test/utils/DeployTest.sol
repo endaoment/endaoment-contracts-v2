@@ -17,8 +17,8 @@ contract DeployTest is DeployAll, DSTestPlus {
   uint8 public constant OrgType = 1;
   uint8 public constant FundType = 2;
 
-  uint256 public constant MIN_DONATION_TRANSFER_AMOUNT = 5;
-  uint256 public constant MAX_DONATION_TRANSFER_AMOUNT = 10000000;
+  uint256 public constant MIN_DONATION_TRANSFER_AMOUNT = 5; // 0.0005 cents USDC
+  uint256 public constant MAX_DONATION_TRANSFER_AMOUNT = 1_000_000_000_000_000; // $1 Billion USDC
 
   // Entity special targets for auth permissions
   address orgTarget = address(bytes20(bytes.concat("entity", bytes1(uint8(1)))));

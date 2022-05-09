@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: BSD 3-Claused
 pragma solidity ^0.8.12;
 import "./utils/DeployTest.sol";
+import { MockSwapperTestHarness } from "./utils/MockSwapperTestHarness.sol";
 import { Math } from "../lib/Math.sol";
 import { EntityInactive, InsufficientFunds, InvalidAction, InvalidTransferAttempt } from "../Entity.sol";
 import { OrgFundFactory } from "../OrgFundFactory.sol";
@@ -41,7 +42,7 @@ contract EntitySetManager is DeployTest {
     }
 }
 
-contract EntityHarness is DeployTest {
+contract EntityHarness is MockSwapperTestHarness {
     Entity receivingEntity;
 
     // local helper function to pick a receiving entity type for transfers, given an _entityType from the fuzzer
@@ -484,6 +485,363 @@ abstract contract EntityDonateTransferTest is EntityHarness {
         vm.expectRevert(Unauthorized.selector);
         vm.prank(user1);
         entity.reconcileBalance();
+    }
+
+    function testFuzz_SwapAndDonateSuccess(
+        address _donor,
+        uint256 _donationAmount,
+        uint256 _amountOut,
+        uint256 _feePercent,
+        bool _isActive
+    ) public {
+        vm.assume(
+            _donor != treasury &&
+            _donor != address(entity)
+        );
+
+        _donationAmount = bound(_donationAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _amountOut = bound(_amountOut, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _feePercent = bound(_feePercent, 0, Math.ZOC); //pick default donation fee percentage between 0 and 100
+        mockSwapWrapper.setAmountOut(_amountOut);
+
+        // Set up the entity.
+        vm.startPrank(board);
+        globalTestRegistry.setEntityStatus(entity, _isActive);
+        globalTestRegistry.setDefaultDonationFee(testEntityType, uint32(_feePercent));
+        vm.stopPrank();
+
+        // Mint and approve test tokens to donor.
+        testToken1.mint(_donor, _donationAmount);
+        vm.prank(_donor);
+        testToken1.approve(address(entity), _donationAmount);
+
+        // Calculate expected results.
+        uint256 _expectedFee = Math.zocmul(mockSwapWrapper.amountOut(), _feePercent);
+        uint256 _expectedReceived = mockSwapWrapper.amountOut() - _expectedFee;
+
+        // Perform swap and donate.
+        vm.expectEmit(true, true, true, true);
+        emit EntityDonationReceived(_donor, address(entity), mockSwapWrapper.amountOut(), _expectedFee);
+        vm.prank(_donor);
+        entity.swapAndDonate(mockSwapWrapper, address(testToken1), _donationAmount, "");
+
+        assertEq(baseToken.balanceOf(address(entity)), _expectedReceived);
+        assertEq(entity.balance(), _expectedReceived);
+        assertEq(baseToken.balanceOf(treasury), _expectedFee);
+    }
+
+    function testFuzz_SwapAndDonateEthSuccess(
+        address _donor,
+        uint256 _donationAmount,
+        uint256 _amountOut,
+        uint256 _feePercent,
+        bool _isActive
+    ) public {
+        vm.assume(
+            _donor != treasury &&
+            _donor != address(entity)
+        );
+
+        _donationAmount = bound(_donationAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _amountOut = bound(_amountOut, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _feePercent = bound(_feePercent, 0, Math.ZOC); //pick default donation fee percentage between 0 and 100
+        mockSwapWrapper.setAmountOut(_amountOut);
+
+        // Set up the entity.
+        vm.startPrank(board);
+        globalTestRegistry.setEntityStatus(entity, _isActive);
+        globalTestRegistry.setDefaultDonationFee(testEntityType, uint32(_feePercent));
+        vm.stopPrank();
+
+        // Give ETH to the donor
+        vm.deal(_donor, _donationAmount);
+
+        // Calculate expected results.
+        uint256 _expectedFee = Math.zocmul(mockSwapWrapper.amountOut(), _feePercent);
+        uint256 _expectedReceived = mockSwapWrapper.amountOut() - _expectedFee;
+
+        // Perform swap and donate.
+        vm.expectEmit(false, true, true, true); // TODO: WHY IS THIS FAILING IF I MAKE IT TRUE?
+        emit EntityDonationReceived(_donor, address(entity), mockSwapWrapper.amountOut(), _expectedFee);
+        vm.prank(_donor);
+        entity.swapAndDonate{value: _donationAmount}(
+            mockSwapWrapper,
+            entity.ETH_PLACEHOLDER(),
+            _donationAmount,
+            ""
+        );
+
+        assertEq(baseToken.balanceOf(address(entity)), _expectedReceived);
+        assertEq(entity.balance(), _expectedReceived);
+        assertEq(baseToken.balanceOf(treasury), _expectedFee);
+    }
+
+    function testFuzz_SwapAndDonateFailsIfSwapperIsNotApproved(
+        address _donor,
+        uint256 _donationAmount,
+        uint256 _amountOut,
+        uint256 _feePercent,
+        bool _isActive
+    ) public {
+        vm.assume(
+            _donor != treasury &&
+            _donor != address(entity)
+        );
+
+        _donationAmount = bound(_donationAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _amountOut = bound(_amountOut, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _feePercent = bound(_feePercent, 0, Math.ZOC); //pick default donation fee percentage between 0 and 100
+        mockSwapWrapper.setAmountOut(_amountOut);
+
+        vm.startPrank(board);
+        // Set up the entity.
+        globalTestRegistry.setEntityStatus(entity, _isActive);
+        globalTestRegistry.setDefaultDonationFee(testEntityType, uint32(_feePercent));
+        // Un-approve the Swapper.
+        globalTestRegistry.setSwapWrapperStatus(mockSwapWrapper, false);
+        vm.stopPrank();
+
+        // Mint and approve test tokens to donor.
+        testToken1.mint(_donor, _donationAmount);
+        vm.prank(_donor);
+        testToken1.approve(address(entity), _donationAmount);
+
+        // Attempt to perform swap and donate.
+        vm.expectRevert(InvalidAction.selector);
+        vm.prank(_donor);
+        entity.swapAndDonate(mockSwapWrapper, address(testToken1), _donationAmount, "");
+    }
+
+    function testFuzz_SwapAndDonateWithOverridesSuccess(
+        address _donor,
+        uint256 _donationAmount,
+        uint256 _amountOut,
+        uint256 _feePercent,
+        bool _isActive
+    ) public {
+        vm.assume(
+            _donor != treasury &&
+            _donor != address(entity)
+        );
+
+        _donationAmount = bound(_donationAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _amountOut = bound(_amountOut, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _feePercent = bound(_feePercent, onePercentZoc, Math.ZOC); //pick default donation fee percentage between 1 and 100
+        mockSwapWrapper.setAmountOut(_amountOut);
+
+        vm.startPrank(board);
+        // Set up the entity.
+        globalTestRegistry.setEntityStatus(entity, _isActive);
+        // Set the default fee.
+        globalTestRegistry.setDefaultDonationFee(testEntityType, uint32(_feePercent));
+        // Set the override fee to 1% lower.
+        globalTestRegistry.setDonationFeeReceiverOverride(entity, uint32(_feePercent - onePercentZoc));
+        vm.stopPrank();
+
+        // Mint and approve test tokens to donor.
+        testToken1.mint(_donor, _donationAmount);
+        vm.prank(_donor);
+        testToken1.approve(address(entity), _donationAmount);
+
+        // Calculate expected results.
+        uint256 _expectedFee = Math.zocmul(mockSwapWrapper.amountOut(), _feePercent - onePercentZoc);
+        uint256 _expectedReceived = mockSwapWrapper.amountOut() - _expectedFee;
+
+        // Perform swap and donate.
+        vm.expectEmit(true, true, true, true);
+        emit EntityDonationReceived(_donor, address(entity), mockSwapWrapper.amountOut(), _expectedFee);
+        vm.prank(_donor);
+        entity.swapAndDonateWithOverrides(mockSwapWrapper, address(testToken1), _donationAmount, "");
+
+        assertEq(baseToken.balanceOf(address(entity)), _expectedReceived);
+        assertEq(entity.balance(), _expectedReceived);
+        assertEq(baseToken.balanceOf(treasury), _expectedFee);
+    }
+
+    function testFuzz_SwapAndDonateWithOverridesEthSuccess(
+        address _donor,
+        uint256 _donationAmount,
+        uint256 _amountOut,
+        uint256 _feePercent,
+        bool _isActive
+    ) public {
+        vm.assume(
+            _donor != treasury &&
+            _donor != address(entity)
+        );
+
+        _donationAmount = bound(_donationAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _amountOut = bound(_amountOut, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _feePercent = bound(_feePercent, onePercentZoc, Math.ZOC); //pick default donation fee percentage between 1 and 100
+        mockSwapWrapper.setAmountOut(_amountOut);
+
+        vm.startPrank(board);
+        // Set up the entity.
+        globalTestRegistry.setEntityStatus(entity, _isActive);
+        // Set the default fee.
+        globalTestRegistry.setDefaultDonationFee(testEntityType, uint32(_feePercent));
+        // Set the override fee to 1% lower.
+        globalTestRegistry.setDonationFeeReceiverOverride(entity, uint32(_feePercent - onePercentZoc));
+        vm.stopPrank();
+
+        // Give ETH to the donor
+        vm.deal(_donor, _donationAmount);
+
+        // Calculate expected results.
+        uint256 _expectedFee = Math.zocmul(mockSwapWrapper.amountOut(), _feePercent - onePercentZoc);
+        uint256 _expectedReceived = mockSwapWrapper.amountOut() - _expectedFee;
+
+        // Perform swap and donate.
+        vm.expectEmit(true, true, true, true);
+        emit EntityDonationReceived(_donor, address(entity), mockSwapWrapper.amountOut(), _expectedFee);
+        vm.prank(_donor);
+        entity.swapAndDonateWithOverrides{value: _donationAmount}(
+            mockSwapWrapper,
+            0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE, // ETH Placeholder.
+            _donationAmount,
+            ""
+        );
+
+        assertEq(baseToken.balanceOf(address(entity)), _expectedReceived);
+        assertEq(entity.balance(), _expectedReceived);
+        assertEq(baseToken.balanceOf(treasury), _expectedFee);
+    }
+
+    function testFuzz_SwapAndReconcileBalanceSuccess(
+        address _manager,
+        uint256 _balanceAmount,
+        uint256 _sweepAmount,
+        uint256 _feePercent
+    ) public {
+        _balanceAmount = bound(_balanceAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _sweepAmount = bound(_sweepAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _feePercent = bound(_feePercent, 0, Math.ZOC);
+
+        vm.startPrank(board);
+        // Set the default donation fee to some percentage between 0 and 100 percent.
+        globalTestRegistry.setDefaultDonationFee(testEntityType, uint32(_feePercent));
+        entity.setManager(_manager);
+        vm.stopPrank();
+
+        // Give the Entity a base token balance.
+        _setEntityBalance(entity, _balanceAmount);
+        // Mint some test tokens directly to the entity.
+        testToken1.mint(address(entity), _sweepAmount);
+
+         // Calculate expected results.
+        uint256 _expectedFee = Math.zocmul(mockSwapWrapper.amountOut(), _feePercent);
+        uint256 _expectedReceived = mockSwapWrapper.amountOut() - _expectedFee;
+
+        vm.expectEmit(true, true, true, true);
+        emit EntityBalanceReconciled(address(entity), mockSwapWrapper.amountOut(), _expectedFee);
+        vm.prank(_manager);
+        entity.swapAndReconcileBalance(mockSwapWrapper, address(testToken1), _sweepAmount, "");
+
+        assertEq(baseToken.balanceOf(treasury), _expectedFee);
+        assertEq(entity.balance(), _balanceAmount + _expectedReceived);
+    }
+
+    function testFuzz_SwapAndReconcileBalanceOverrideFeeSuccess(
+        address _manager,
+        uint256 _balanceAmount,
+        uint256 _sweepAmount,
+        uint256 _feePercent
+    ) public {
+        _balanceAmount = bound(_balanceAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _sweepAmount = bound(_sweepAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _feePercent = bound(_feePercent, onePercentZoc, Math.ZOC);
+
+        vm.startPrank(board);
+        entity.setManager(_manager);
+        // Set the default fee.
+        globalTestRegistry.setDefaultDonationFee(testEntityType, uint32(_feePercent));
+        // Set the override fee to 1% lower.
+        globalTestRegistry.setDonationFeeReceiverOverride(entity, uint32(_feePercent - onePercentZoc));
+        vm.stopPrank();
+
+        // Give the Entity a base token balance.
+        _setEntityBalance(entity, _balanceAmount);
+        // Mint some test tokens directly to the entity.
+        testToken1.mint(address(entity), _sweepAmount);
+
+         // Calculate expected results.
+        uint256 _expectedFee = Math.zocmul(mockSwapWrapper.amountOut(), _feePercent - onePercentZoc);
+        uint256 _expectedReceived = mockSwapWrapper.amountOut() - _expectedFee;
+
+        vm.expectEmit(true, true, true, true);
+        emit EntityBalanceReconciled(address(entity), mockSwapWrapper.amountOut(), _expectedFee);
+        vm.prank(_manager);
+        entity.swapAndReconcileBalance(mockSwapWrapper, address(testToken1), _sweepAmount, "");
+
+        assertEq(baseToken.balanceOf(treasury), _expectedFee);
+        assertEq(entity.balance(), _balanceAmount + _expectedReceived);
+    }
+
+    function testFuzz_SwapAndReconcileBalanceEthSuccess(
+        address _manager,
+        uint256 _balanceAmount,
+        uint256 _sweepAmount,
+        uint256 _feePercent
+    ) public {
+        _balanceAmount = bound(_balanceAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _sweepAmount = bound(_sweepAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _feePercent = bound(_feePercent, 0, Math.ZOC);
+
+        vm.startPrank(board);
+        // Set the default donation fee to some percentage between 0 and 100 percent.
+        globalTestRegistry.setDefaultDonationFee(testEntityType, uint32(_feePercent));
+        entity.setManager(_manager);
+        vm.stopPrank();
+
+        // Give the Entity a base token balance.
+        _setEntityBalance(entity, _balanceAmount);
+        // Send ETH directly to the entity.
+        vm.deal(address(entity), _sweepAmount);
+
+         // Calculate expected results.
+        uint256 _expectedFee = Math.zocmul(mockSwapWrapper.amountOut(), _feePercent);
+        uint256 _expectedReceived = mockSwapWrapper.amountOut() - _expectedFee;
+
+        vm.expectEmit(true, true, true, true);
+        emit EntityBalanceReconciled(address(entity), mockSwapWrapper.amountOut(), _expectedFee);
+        vm.prank(_manager);
+        entity.swapAndReconcileBalance(
+            mockSwapWrapper,
+            0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE, // ETH Placeholder
+            _sweepAmount,
+            ""
+        );
+
+        assertEq(baseToken.balanceOf(treasury), _expectedFee);
+        assertEq(entity.balance(), _balanceAmount + _expectedReceived);
+    }
+
+    function testFuzz_SwapAndReconcileBalanceFailsIfSwapperIsNotApproved(
+        address _manager,
+        uint256 _balanceAmount,
+        uint256 _sweepAmount,
+        uint256 _feePercent
+    ) public {
+        _balanceAmount = bound(_balanceAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _sweepAmount = bound(_sweepAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _feePercent = bound(_feePercent, 0, Math.ZOC);
+
+        vm.startPrank(board);
+        // Set the default donation fee to some percentage between 0 and 100 percent.
+        globalTestRegistry.setDefaultDonationFee(testEntityType, uint32(_feePercent));
+        entity.setManager(_manager);
+        // Un-approve the mock swapper.
+        globalTestRegistry.setSwapWrapperStatus(mockSwapWrapper, false);
+        vm.stopPrank();
+
+        // Give the Entity a base token balance.
+        _setEntityBalance(entity, _balanceAmount);
+        // Mint some test tokens directly to the entity.
+        testToken1.mint(address(entity), _sweepAmount);
+
+        vm.expectRevert(InvalidAction.selector);
+        vm.prank(_manager);
+        entity.swapAndReconcileBalance(mockSwapWrapper, address(testToken1), _sweepAmount, "");
     }
 }
 

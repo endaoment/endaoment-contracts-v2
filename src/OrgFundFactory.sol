@@ -2,19 +2,34 @@
 pragma solidity ^0.8.12;
 
 import { Clones } from "openzeppelin-contracts/contracts/proxy/Clones.sol";
+import { ERC20 } from "solmate/tokens/ERC20.sol";
+import { SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
 import { Registry } from "./Registry.sol";
 import { EntityFactory } from "./EntityFactory.sol";
+import { Entity } from "./Entity.sol";
 import { Org } from "./Org.sol";
 import { Fund } from "./Fund.sol";
+import { ISwapWrapper } from "./interfaces/ISwapWrapper.sol";
 
 /**
  * @notice This contract is the factory for both the Org and Fund objects.
  */
 contract OrgFundFactory is EntityFactory {
+    using SafeTransferLib for ERC20;
 
-    Org orgImplementation;
-    Fund fundImplementation;
+    /// @notice Placeholder address used in swapping method to denote usage of ETH instead of a token.
+    address public constant ETH_PLACEHOLDER = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
+    /// @dev The concrete Org used for minimal proxy deployment.
+    Org public immutable orgImplementation;
+
+    /// @dev The concrete Fund used for minimal proxy deployment.
+    Fund public immutable fundImplementation;
+
+    /**
+     * @param _registry The Registry this factory will configure Entities to interact with. This factory must be
+     * approved on this Registry for it to work properly.
+     */
     constructor(Registry _registry) EntityFactory(_registry) {
         orgImplementation = new Org();
         orgImplementation.initialize(_registry, bytes32("IMPL")); // necessary?
@@ -36,6 +51,41 @@ contract OrgFundFactory is EntityFactory {
     }
 
     /**
+     * @notice Deploys a Fund then pulls base token from the sender and donates to it.
+     * @param _manager The address of the Fund's manager.
+     * @param _salt A 32-byte value used to create the contract at a deterministic address.
+     * @param _amount The amount of base token to donate.
+     * @return _fund The deployed Fund.
+     */
+    function deployFundAndDonate(address _manager, bytes32 _salt, uint256 _amount) external returns (Fund _fund) {
+        _fund = deployFund(_manager, _salt);
+        _donate(_fund, _amount);
+    }
+
+    /**
+     * @notice Deploys a new Fund, then pulls a ETH or ERC20 tokens, swaps them to base tokens,
+     * and donates to the new Fund.
+     * @param _manager The address of the Fund's manager.
+     * @param _salt A 32-byte value used to create the contract at a deterministic address.
+     * @param _swapWrapper The swap wrapper to use for the donation. Must be whitelisted on the Registry.
+     * @param _tokenIn The address of the ERC20 token to swap and donate, or ETH_PLACEHOLDER if donating ETH.
+     * @param _amountIn The amount of tokens or ETH being swapped and donated.
+     * @param _data Additional call data required by the ISwapWrapper being used.
+     * @return _fund The deployed Fund.
+     */
+    function deployFundSwapAndDonate(
+        address _manager,
+        bytes32 _salt,
+        ISwapWrapper _swapWrapper,
+        address _tokenIn,
+        uint256 _amountIn,
+        bytes calldata _data
+    ) external payable returns (Fund _fund) {
+        _fund = deployFund(_manager, _salt);
+        _swapAndDonate(_fund, _swapWrapper, _tokenIn, _amountIn, _data);
+    }
+
+    /**
      * @notice Deploys an Org.
      * @param _orgId The Org's ID for tax purposes.
      * @param _salt A 32-byte value used to create the contract at a deterministic address.
@@ -46,6 +96,41 @@ contract OrgFundFactory is EntityFactory {
         _org.initialize(registry, _orgId);
         registry.setEntityActive(_org);
         emit EntityDeployed(address(_org), _org.entityType(), _org.manager());
+    }
+
+    /**
+     * @notice Deploys an Org then pulls base token from the sender and donates to it.
+     * @param _orgId The Org's ID for tax purposes.
+     * @param _salt A 32-byte value used to create the contract at a deterministic address.
+     * @param _amount The amount of base token to donate.
+     * @return _org The deployed Org.
+     */
+    function deployOrgAndDonate(bytes32 _orgId, bytes32 _salt, uint256 _amount) external returns (Org _org) {
+        _org = deployOrg(_orgId, _salt);
+        _donate(_org, _amount);
+    }
+
+    /**
+     * @notice Deploys a new Org, then pulls a ETH or ERC20 tokens, swaps them to base tokens,
+     * and donates to the new Org.
+     * @param _orgId The Org's ID for tax purposes.
+     * @param _salt A 32-byte value used to create the contract at a deterministic address.
+     * @param _swapWrapper The swap wrapper to use for the donation. Must be whitelisted on the Registry.
+     * @param _tokenIn The address of the ERC20 token to swap and donate, or ETH_PLACEHOLDER if donating ETH.
+     * @param _amountIn The amount of tokens or ETH being swapped and donated.
+     * @param _data Additional call data required by the ISwapWrapper being used.
+     * @return _org The deployed Org.
+     */
+    function deployOrgSwapAndDonate(
+        bytes32 _orgId,
+        bytes32 _salt,
+        ISwapWrapper _swapWrapper,
+        address _tokenIn,
+        uint256 _amountIn,
+        bytes calldata _data
+    ) external payable returns (Org _org) {
+        _org = deployOrg(_orgId, _salt);
+        _swapAndDonate(_org, _swapWrapper, _tokenIn, _amountIn, _data);
     }
 
     /**
@@ -66,5 +151,33 @@ contract OrgFundFactory is EntityFactory {
      */
     function computeFundAddress(bytes32 _salt) external view returns (address) {
         return Clones.predictDeterministicAddress(address(fundImplementation), _salt, address(this));
+    }
+
+    /// @dev Pulls base tokens from sender and donates them to the entity.
+    function _donate(Entity _entity, uint256 _amount) internal {
+        ERC20 _token = registry.baseToken();
+        // CONSIDER: if Entity's reconcileBalance method was public, we could transfer straight to the org and then
+        // call it to process the fees. Probably cheaper, though perhaps semantically weird.
+        _token.safeTransferFrom(msg.sender, address(this), _amount);
+        // Implicit assumption that base token does not require zeroing approvals
+        _token.approve(address(_entity), _amount);
+        _entity.donate(_amount);
+    }
+
+    /// @dev Pulls ERC20 tokens, or receives ETH, and swaps and donates them to the entity.
+    function _swapAndDonate(
+        Entity _entity,
+        ISwapWrapper _swapWrapper,
+        address _tokenIn,
+        uint256 _amountIn,
+        bytes calldata _data
+    ) internal {
+        if (_tokenIn != ETH_PLACEHOLDER) {
+            ERC20(_tokenIn).safeTransferFrom(msg.sender, address(this), _amountIn);
+            ERC20(_tokenIn).safeApprove(address(_entity), 0);
+            ERC20(_tokenIn).safeApprove(address(_entity), _amountIn);
+        }
+
+        _entity.swapAndDonate{value: msg.value}(_swapWrapper, _tokenIn, _amountIn, _data);
     }
 }

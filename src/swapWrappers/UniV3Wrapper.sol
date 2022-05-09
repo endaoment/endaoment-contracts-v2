@@ -36,7 +36,6 @@ contract UniV3Wrapper is ISwapWrapper {
      * @notice `swap` handles all swaps on Uniswap v3.
      * @param _tokenIn Token in (or for ETH, 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE).
      * @param _tokenOut Token out (or for ETH, 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE).
-     * @param _sender Sender of swap input.
      * @param _recipient Recipient of the swap output.
      * @param _amount Amount of `_tokenIn`.
      * @param _data Abi encoded `fee`, `deadline`, `amountOutMinimum`, `sqrtPriceLimitX96`.
@@ -44,14 +43,14 @@ contract UniV3Wrapper is ISwapWrapper {
      * @dev In the case of an ERC20 swap, this contract first possesses the `_amount` via `transferFrom`
      * and therefore preconditionally requires an ERC20 approval from the caller.
      */
-    function swap(address _tokenIn, address _tokenOut, address _sender, address _recipient, uint256 _amount, bytes calldata _data) external payable returns (uint256) {
+    function swap(address _tokenIn, address _tokenOut, address _recipient, uint256 _amount, bytes calldata _data) external payable returns (uint256) {
         // If token is ETH and value was sent, ensure the value matches the swap input amount.
         bool _isInputEth = _tokenIn == eth || (_tokenIn == address(weth) && msg.value > 0);
         if ((_isInputEth && msg.value != _amount) || (!_isInputEth && msg.value > 0)) revert ETHAmountInMismatch(); 
 
         // If caller isn't sending ETH, we need to transfer in tokens and approve the router
         if (!_isInputEth) {
-            ERC20(_tokenIn).safeTransferFrom(_sender, address(this), _amount);
+            ERC20(_tokenIn).safeTransferFrom(msg.sender, address(this), _amount);
             // We first set allowance to 0 then to the swap amount because some tokens like USDT do not allow you
             // to change allowance without going through zero. They do this as mitigation against the ERC-20
             // approval race condition, but that race condition is not an issue here.
@@ -93,7 +92,7 @@ contract UniV3Wrapper is ISwapWrapper {
             weth.withdraw(_amountOut);
             payable(_recipient).transfer(_amountOut);
         }
-        emit WrapperSwapExecuted(_tokenIn, _tokenOut, _sender, _recipient, _amount, _amountOut);
+        emit WrapperSwapExecuted(_tokenIn, _tokenOut, msg.sender, _recipient, _amount, _amountOut);
         return _amountOut;
     }
 
