@@ -438,7 +438,7 @@ abstract contract Entity is EndaomentAuth {
     /// @dev Internal helper method to calculate the fee on a base token amount for a given fee multiplier.
     function _calculateFee(
         uint256 _amount,
-        uint32 _feeMultiplier
+        uint256 _feeMultiplier
     ) internal pure returns (uint256 _netAmount, uint256 _fee) {
         if (_feeMultiplier > Math.ZOC) revert InvalidAction();
         unchecked {
