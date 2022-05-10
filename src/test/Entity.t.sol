@@ -178,7 +178,7 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
     }
 
     // Test a valid payout with sender override from an entity to an address
-    function testFuzz_PayoutWithSenderOverridesSuccess(address _receiver, uint256 _amount, uint256 _feePercent, uint _actorIndex, bool _isActive) public {
+    function testFuzz_PayoutWithOverridesSuccess(address _receiver, uint256 _amount, uint256 _feePercent, uint _actorIndex, bool _isActive) public {
         vm.assume(address(entity) != _receiver);
         vm.assume(treasury != _receiver);
         address _actor = payoutActors[_actorIndex % payoutActors.length];

@@ -84,7 +84,7 @@ contract NVTTest is NVTTypes, DeployTest {
 }
 
 // Deployment sanity checks.
-contract Deployment is NVTTest {
+contract NVTDeployment is NVTTest {
 
     function test_Deployment() public {
         assertEq(nvt.name(), "NDAO Voting Token");
