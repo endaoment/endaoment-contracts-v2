@@ -165,7 +165,7 @@ contract DeployTest is DeployAll, DSTestPlus {
     vm.stopPrank();
   }
 
-  // local helper function to set an entity's balance
+  // local helper function to set an entity's contract balance and token balance
   function _setEntityBalance(Entity _entity, uint256 _newBalance) internal {
       stdstore
           .target(address(_entity))
@@ -173,5 +173,13 @@ contract DeployTest is DeployAll, DSTestPlus {
           .checked_write(_newBalance);
       ERC20 _baseToken = globalTestRegistry.baseToken();
       deal(address(_baseToken), address(_entity), _newBalance);
+  }
+
+  // local helper function to set an entity's contract balance
+  function _setEntityContractBalance(Entity _entity, uint256 _newBalance) internal {
+      stdstore
+          .target(address(_entity))
+          .sig(_entity.balance.selector)
+          .checked_write(_newBalance);
   }
 }

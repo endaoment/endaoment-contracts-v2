@@ -73,6 +73,7 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
     event EntityDonationReceived(address indexed from, address indexed to, uint256 amount, uint256 fee);
     event EntityFundsTransferred(address indexed from, address indexed to, uint256 amountReceived, uint256 amountFee);
     event EntityBalanceReconciled(address indexed entity, uint256 amountReceived, uint256 amountFee);
+    event EntityBalanceCorrected(address indexed entity, uint256 newBalance);
     event EntityFundsPaidOut(address indexed from, address indexed to, uint256 amountSent, uint256 amountFee);
 
     // Test a normal donation to an entity from a donor.
@@ -602,6 +603,21 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         assertEq(_baseToken.balanceOf(treasury), 0);
         assertEq(entity.balance(), _balanceAmount);
         vm.stopPrank();
+    }
+
+    // Test that the reconcileBalance function emits an appropriate event when the contract balance is more than the token balance, and is corrected.
+    function testFuzz_ReconcileBalanceSuccessWithCorrection(address _manager, uint256 _balanceAmount, uint256 _overageAmount) public {
+        _balanceAmount = bound(_balanceAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
+        _overageAmount = bound(_overageAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
+
+        // preset the requested amount of basetokens into the entity
+        _setEntityBalance(entity, _balanceAmount);
+        // update the contract balance to be more than the entity balance so the correction can be attempted
+        _setEntityContractBalance(entity, _balanceAmount + _overageAmount);
+        vm.expectEmit(true, false, false, true);
+        emit EntityBalanceCorrected(address(entity), _balanceAmount);
+        entity.reconcileBalance();
+        assertEq(entity.balance(), _balanceAmount);
     }
 
     // Test that the reconcileBalance function fails when the entity donations disallowed via default donation fee setting.

@@ -53,6 +53,9 @@ abstract contract Entity is EndaomentAuth {
     /// @notice Emitted when a base token reconciliation completes
     event EntityBalanceReconciled(address indexed entity, uint256 amountReceived, uint256 amountFee);
 
+    /// @notice Emitted when a base token balance is used to correct the internal contract balance.
+    event EntityBalanceCorrected(address indexed entity, uint256 newBalance);
+
     /// @notice Emitted when a portfolio deposit is made.
     event EntityDeposit(address indexed portfolio, uint256 baseTokenDeposited, uint256 sharesRecieved);
 
@@ -306,22 +309,33 @@ abstract contract Entity is EndaomentAuth {
     }
 
     /**
-     * @notice This sweeper method should be called to process amounts of baseToken that arrived at this Entity through methods
-     * besides Entity:donate or Entity:transfer. For example, if this Entity receives a normal ERC20 transfer of baseToken, the
-     * amount received will be unavailable for Entity use until this method is called to adjust the balance and process fees.
+     * @notice This method should be called to reconcile the Entity's internal baseToken accounting with the baseToken contract's accounting.
+     * There are a 2 situations where calling this method is appropriate:
+     * 1. To process amounts of baseToken that arrived at this Entity through methods besides Entity:donate or Entity:transfer. For example,
+     * if this Entity receives a normal ERC20 transfer of baseToken, the amount received will be unavailable for Entity use until this method
+     * is called to adjust the balance and process fees. OrgFundFactory.sol:_donate makes use of this method to do this as well.
+     * 2. Unusually, the Entity's perspective of balance could be lower than `baseToken.balanceOf(this)`. This could happen if
+     * Entity:callAsEntity is used to transfer baseToken. In this case, this method provides a way of correcting the Entity's internal balance.
      */
     function reconcileBalance() external {
-        uint256 _sweepAmount = registry.baseToken().balanceOf(address(this)) - balance;
-        uint32 _feeMultiplier = registry.getDonationFeeWithOverrides(this);
+        uint256 _tokenBalance = registry.baseToken().balanceOf(address(this));
 
-        (uint256 _netAmount, uint256 _fee) = _calculateFee(_sweepAmount, _feeMultiplier);
+        if (_tokenBalance >= balance) {
+            uint256 _sweepAmount = _tokenBalance - balance;
+            uint32 _feeMultiplier = registry.getDonationFeeWithOverrides(this);
+            (uint256 _netAmount, uint256 _fee) = _calculateFee(_sweepAmount, _feeMultiplier);
 
-        baseToken.safeTransfer(registry.treasury(), _fee);
-        unchecked {
-            balance += _netAmount;
+            baseToken.safeTransfer(registry.treasury(), _fee);
+            unchecked {
+                balance += _netAmount;
+            }
+            emit EntityBalanceReconciled(address(this), _sweepAmount, _fee);
+        } else {
+            // Handle abnormal scenario where _tokenBalance < balance (see method docs)
+            balance = _tokenBalance;
+            emit EntityBalanceCorrected(address(this), _tokenBalance);
         }
-        emit EntityBalanceReconciled(address(this), _sweepAmount, _fee);
-    }
+     }
 
     /**
      * @notice Takes stray tokens or ETH sent directly to this Entity, swaps them for base token, then adds them to the
