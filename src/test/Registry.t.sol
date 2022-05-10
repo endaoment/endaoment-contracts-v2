@@ -13,6 +13,8 @@ contract RegistryTest is DeployTest {
     event EntityStatusSet(address indexed entity, bool isActive);
     event DefaultDonationFeeSet(uint8 indexed entityType, uint32 fee);
     event DonationFeeReceiverOverrideSet(address indexed entity, uint32 fee);
+    event DefaultPayoutFeeSet(uint8 indexed entityType, uint32 fee);
+    event PayoutFeeOverrideSet(address indexed entity, uint32 fee);
     event DefaultTransferFeeSet(uint8 indexed fromEntitytype, uint8 indexed toEntityType, uint32 fee);
     event TransferFeeSenderOverrideSet(address indexed fromEntity, uint8 indexed toEntityType, uint32 fee);
     event TransferFeeReceiverOverrideSet(uint8 indexed fromEntityType, address indexed toEntity, uint32 fee);
@@ -142,7 +144,6 @@ contract RegistrySetDefaultDonationFee is RegistryTest {
 
     // test to set fee for an entity type
     function testFuzz_SetDefaultDonationFee(uint32 _fee, uint _actor, address _manager) public {
-        vm.assume( (_fee > 0) && (_fee < type(uint32).max) );
         address actor = actors[_actor % actors.length];
         Fund _fund = orgFundFactory.deployFund(_manager, "salt");
         vm.expectEmit(true, false, false, false);
@@ -250,6 +251,124 @@ contract RegistrySetDonationFeeReceiverOverride is RegistryTest {
         vm.prank(user1);
         vm.expectRevert(Unauthorized.selector);
         globalTestRegistry.setDonationFeeReceiverOverride(_fund, _fee);
+    }
+}
+
+// Tests to verify that permissioned addresses can set the default payout fee for entity types.
+// The 0 <--> max fee "flip" logic in the `Registry` contract `_parseFee` function means that "unmapped" fees
+// would return max and ultimately cause payout calculation reverts.
+// These tests verify the correct functioning of the "flip" logic.
+contract RegistrySetDefaultPayoutFee is RegistryTest {
+    address[] public actors = [board, programCommittee];
+
+    // test to set fee for an entity type
+    function testFuzz_SetDefaultPayoutFee(uint32 _fee, uint _actor, address _manager) public {
+        address actor = actors[_actor % actors.length];
+        Fund _fund = orgFundFactory.deployFund(_manager, "salt");
+        vm.expectEmit(true, false, false, true);
+        emit DefaultPayoutFeeSet(FundType, _fee);
+        vm.prank(actor);
+        globalTestRegistry.setDefaultPayoutFee(FundType, _fee);
+        assertEq(globalTestRegistry.getPayoutFee(_fund), _fee);
+    }
+
+    // Test that an unmapped default fee causes the return of max value
+    function testFuzz_UnmappedDefaultPayoutFee(address _manager) public {
+        Fund _fund = orgFundFactory.deployFund(_manager, "salt");
+        assertEq(globalTestRegistry.getPayoutFee(_fund), type(uint32).max);
+    }
+
+    // Test zeroing the fee.
+    function testFuzz_SetDefaultPayoutFeeToNoFee(uint _actor, bytes32 _orgId) public {
+        address actor = actors[_actor % actors.length];
+        Org _org = orgFundFactory.deployOrg(_orgId, "salt");
+        vm.expectEmit(true, false, false, true);
+        emit DefaultPayoutFeeSet(OrgType, 0);
+        vm.prank(actor);
+        globalTestRegistry.setDefaultPayoutFee(OrgType, 0);
+        assertEq(globalTestRegistry.getPayoutFee(_org), 0);
+    }
+
+    // test maxing fee via setting value to maxint 
+    function testFuzz_SetDefaultPayoutFeeToMax(uint _actor, bytes32 _orgId) public {
+        address actor = actors[_actor % actors.length];
+        Org _org = orgFundFactory.deployOrg(_orgId, "salt");
+        vm.expectEmit(true, false, false, true);
+        emit DefaultPayoutFeeSet(OrgType, type(uint32).max);
+        vm.prank(actor);
+        globalTestRegistry.setDefaultPayoutFee(OrgType, type(uint32).max);
+        assertEq(globalTestRegistry.getPayoutFee(_org), type(uint32).max);
+    }
+
+    // Test that an unauthorized user  cannot set the fee.
+    function testFuzz_SetDefaultPayoutFeeUnauthorized(uint8 _entityType, uint32 _fee) public {
+        vm.prank(user1);
+        vm.expectRevert(Unauthorized.selector);
+        globalTestRegistry.setDefaultPayoutFee(_entityType, _fee);
+    }
+}
+
+// Tests to verify that permissioned addresses can set the payout fee override for specific entities.
+// This is accomplished by setting the default payout fee for an entity type, then setting an override for a specific entity
+// then verifying that the specific entity got the override correctly set and another entity correctly had the default fee.
+// These tests also verify the fee "flip" logic.
+contract RegistrySetPayoutFeeOverride is RegistryTest {
+    address[] public actors = [board, programCommittee];
+
+    // test that fee override for a specific receiving entity causes the fetch of the overridden fee
+    function testFuzz_SetPayoutFeeOverride(uint32 _fee, uint _actor, address _manager1, address _manager2) public {
+        vm.assume(_fee < type(uint32).max);
+        address actor = actors[_actor % actors.length];
+        Fund _fund1 = orgFundFactory.deployFund(_manager1, "salt");
+        Fund _fund2 = orgFundFactory.deployFund(_manager2, "salt2");
+        vm.startPrank(actor);
+        vm.expectEmit(true, false, false, true);
+        emit DefaultPayoutFeeSet(FundType, _fee + 1);
+        globalTestRegistry.setDefaultPayoutFee(FundType, _fee + 1);
+        vm.expectEmit(true, false, false, false);
+        emit PayoutFeeOverrideSet(address(_fund1), _fee);
+        globalTestRegistry.setPayoutFeeOverride(_fund1, _fee);
+        vm.stopPrank();
+        assertEq(globalTestRegistry.getPayoutFeeWithOverrides(_fund1), _fee);
+        assertEq(globalTestRegistry.getPayoutFeeWithOverrides(_fund2), _fee + 1);
+    }
+
+    // test zeroing the override for a specific receiving entity triggers an override of no fee
+    function testFuzz_SetPayoutFeeOverrideToNoFee(uint _actor, bytes32 _orgId1, bytes32 _orgId2) public {
+        vm.assume(_orgId1 != _orgId2);
+        address actor = actors[_actor % actors.length];
+        Org _org1 = orgFundFactory.deployOrg(_orgId1, "salt");
+        Org _org2 = orgFundFactory.deployOrg(_orgId2, "salt2");
+        vm.startPrank(actor);
+        vm.expectEmit(true, false, false, true);
+        emit DefaultPayoutFeeSet(OrgType, 10);
+        globalTestRegistry.setDefaultPayoutFee(OrgType, 10);
+        vm.expectEmit(true, false, false, true);
+        emit PayoutFeeOverrideSet(address(_org1), 0);
+        globalTestRegistry.setPayoutFeeOverride(_org1, 0);
+        vm.stopPrank();
+        assertEq(globalTestRegistry.getPayoutFeeWithOverrides(_org1), 0);
+        assertEq(globalTestRegistry.getPayoutFeeWithOverrides(_org2), 10);
+    }
+
+    // test that not setting the override for a specific receiving entity causes getPayoutFeeWithOverrides to return the default fee
+    function testFuzz_SetPayoutFeeOverrideNotDoneYieldsDefaultFee(uint _actor, bytes32 _orgId) public {
+        address actor = actors[_actor % actors.length];
+        Org _org = orgFundFactory.deployOrg(_orgId, "salt");
+        vm.startPrank(actor);
+        vm.expectEmit(true, false, false, true);
+        emit DefaultPayoutFeeSet(OrgType, 10);
+        globalTestRegistry.setDefaultPayoutFee(OrgType, 10);
+        vm.stopPrank();
+        assertEq(globalTestRegistry.getPayoutFeeWithOverrides(_org), 10);
+    }
+
+    // test that an unauthorized user  cannot set the fee override
+    function testFuzz_SetPayoutFeeOverrideUnauthorized(address _manager, uint32 _fee) public {
+        Fund _fund = orgFundFactory.deployFund(_manager, "salt");
+        vm.prank(user1);
+        vm.expectRevert(Unauthorized.selector);
+        globalTestRegistry.setPayoutFeeOverride(_fund, _fee);
     }
 }
 

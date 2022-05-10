@@ -44,6 +44,9 @@ abstract contract Entity is EndaomentAuth {
     /// @notice Emitted when a donation is made.
     event EntityDonationReceived(address indexed from, address indexed to, uint256 amountReceived, uint256 amountFee);
 
+    /// @notice Emitted when a payout is made from an entity.
+    event EntityFundsPaidOut(address indexed from, address indexed to, uint256 amountSent, uint256 amountFee);
+
     /// @notice Emitted when a transfer is made between entities.
     event EntityFundsTransferred(address indexed from, address indexed to, uint256 amountReceived, uint256 amountFee);
 
@@ -122,16 +125,8 @@ abstract contract Entity is EndaomentAuth {
      * @dev Reverts if the token transfer fails.
      */
     function _donateWithFeeMultiplier(uint256 _amount, uint32 _feeMultiplier) internal {
-        uint256 _fee;
-        uint256 _netAmount;
-        if (_feeMultiplier > Math.ZOC) revert InvalidAction();
-        unchecked {
-            // unchecked as no possibility of overflow with baseToken precision
-            _fee = _amount.zocmul(_feeMultiplier);
-            // unchecked as the _feeMultiplier check with revert above protects against overflow
-            _netAmount = _amount - _fee;
-        }
 
+        (uint256 _netAmount, uint256 _fee) = _calculateFee(_amount, _feeMultiplier);
         baseToken.safeTransferFrom(msg.sender, registry.treasury(), _fee);
         baseToken.safeTransferFrom(msg.sender, address(this), _netAmount);
 
@@ -253,15 +248,8 @@ abstract contract Entity is EndaomentAuth {
     function _transferWithFeeMultiplier(Entity _to, uint256 _amount, uint32 _feeMultiplier) internal {
         if (!registry.isActiveEntity(this)) revert EntityInactive();
         if (balance < _amount) revert InsufficientFunds();
-        uint256 _fee;
-        uint256 _netAmount;
-        if (_feeMultiplier > Math.ZOC) revert InvalidAction();
-        unchecked {
-            // unchecked as no possibility of underflow with baseToken precision
-            _fee = _amount.zocmul(_feeMultiplier);
-            // unchecked as the _feeMultiplier check with revert above protects against overflow
-            _netAmount = _amount - _fee;
-        }
+
+        (uint256 _netAmount, uint256 _fee) = _calculateFee(_amount, _feeMultiplier);
         baseToken.safeTransfer(registry.treasury(), _fee);
         baseToken.safeTransfer(address(_to), _netAmount);
 
@@ -325,22 +313,13 @@ abstract contract Entity is EndaomentAuth {
      */
     function reconcileBalance() external requiresManager {
         uint256 _sweepAmount = registry.baseToken().balanceOf(address(this)) - balance;
-        uint256 _fee;
-        uint256 _netAmount;
-        if (_sweepAmount > 0) {
-            uint32 _feeMultiplier = registry.getDonationFeeWithOverrides(this);
-            if (_feeMultiplier > Math.ZOC) revert InvalidAction();
-            unchecked {
-                // unchecked as no possibility of overflow with baseToken precision
-                _fee = _sweepAmount.zocmul(_feeMultiplier);
-                // unchecked as the _feeMultiplier check with revert above protects against overflow
-                _netAmount = _sweepAmount - _fee;
-            }
+        uint32 _feeMultiplier = registry.getDonationFeeWithOverrides(this);
 
-            baseToken.safeTransfer(registry.treasury(), _fee);
-            unchecked {
-                balance += _netAmount;
-            }
+        (uint256 _netAmount, uint256 _fee) = _calculateFee(_sweepAmount, _feeMultiplier);
+
+        baseToken.safeTransfer(registry.treasury(), _fee);
+        unchecked {
+            balance += _netAmount;
         }
         emit EntityBalanceReconciled(address(this), _sweepAmount, _fee);
     }
@@ -407,8 +386,57 @@ abstract contract Entity is EndaomentAuth {
         return _response;
     }
 
+    /**
+     * @notice Pays out an amount of base tokens from the entity to an address. Transfers the fee calculated by the
+     * default fee multiplier to the treasury.
+     * @param _to The address to receive the tokens.
+     * @param _amount Amount donated in base token.
+     * @dev Reverts with `Unauthorized` if the `msg.sender` is not a privileged role.
+     * @dev Reverts if the fee percentage is larger than 100% (equal to 1e4 when represented as a zoc).
+     * @dev Reverts if the token transfer fails.
+     */
+    function payout(address _to, uint256 _amount) external requiresAuth {
+        uint32 _feeMultiplier = registry.getPayoutFee(this);
+        _payoutWithFeeMultiplier(_to, _amount, _feeMultiplier);
+    }
+
+    /**
+     * @notice Pays out an amount of base tokens from the entity to an address. Transfers the fee calculated by the
+     * default fee multiplier to the treasury.
+     * @param _amount Amount donated in base token.
+     * @dev Reverts with `Unauthorized` if the `msg.sender` is not a privileged role.
+     * @dev Reverts if the fee percentage is larger than 100% (equal to 1e4 when represented as a zoc).
+     * @dev Reverts if the token transfer fails.
+     */
+    function payoutWithOverrides(address _to, uint256 _amount) external requiresAuth {
+        uint32 _feeMultiplier = registry.getPayoutFeeWithOverrides(this);
+        _payoutWithFeeMultiplier(_to, _amount, _feeMultiplier);
+    }
+
+    /**
+     * @notice Pays out an amount of base tokens from the entity to an address. Transfers the fee calculated by fee multiplier to the treasury.
+     * @param _to The address to receive the tokens.
+     * @param _amount Contains the amount being paid out (denominated in the base token's units).
+     * @param _feeMultiplier Value indicating the percentage of the Endaoment fee to go to the Endaoment treasury.
+     * @dev Reverts if the token transfer fails.
+     * @dev Reverts if the fee percentage is larger than 100% (equal to 1e4 when represented as a zoc).
+     */
+    function _payoutWithFeeMultiplier(address _to, uint256 _amount, uint32 _feeMultiplier) internal {
+        if (balance < _amount) revert InsufficientFunds();
+        
+        (uint256 _netAmount, uint256 _fee) = _calculateFee(_amount, _feeMultiplier);
+        baseToken.safeTransfer(registry.treasury(), _fee);
+        baseToken.safeTransfer(address(_to), _netAmount);
+
+        unchecked {
+            // unchecked because we've already validated that amount is less than or equal to the balance
+            balance -= _amount;
+        }
+        emit EntityFundsPaidOut(address(this), _to, _amount, _fee);
+    }
+
     /// @dev Internal helper method to calculate the fee on a base token amount for a given fee multiplier.
-    function _calculateFee( // TODO: use this in the rest of the contract.
+    function _calculateFee(
         uint256 _amount,
         uint32 _feeMultiplier
     ) internal pure returns (uint256 _netAmount, uint256 _fee) {

@@ -63,19 +63,21 @@ contract EntityHarness is MockSwapperTestHarness {
 // This abstract test contract acts as a harness to test common features of all Entity types.
 // Concrete test contracts that inherit from contract to test a specific entity type need only set the Entity type
 //  to be tested and deploy their specific entity to be subjected to the tests.
-abstract contract EntityDonateTransferTest is EntityHarness {
+abstract contract EntityTokenTransactionTest is EntityHarness {
     using stdStorage for StdStorage;
     Entity entity;
     uint8 testEntityType;
     uint32 internal constant onePercentZoc = 100;
+    address[] public payoutActors = [board, capitalCommittee];
 
     event EntityDonationReceived(address indexed from, address indexed to, uint256 amount, uint256 fee);
     event EntityFundsTransferred(address indexed from, address indexed to, uint256 amountReceived, uint256 amountFee);
     event EntityBalanceReconciled(address indexed entity, uint256 amountReceived, uint256 amountFee);
+    event EntityFundsPaidOut(address indexed from, address indexed to, uint256 amountSent, uint256 amountFee);
 
     // Test a normal donation to an entity from a donor.
     function testFuzz_DonateSuccess(address _donor, uint256 _donationAmount, uint256 _feePercent, bool _isActive) public {
-        _donationAmount = bound(_donationAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _donationAmount = bound(_donationAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         vm.assume(_donor != treasury);
         vm.assume(_donor != address(entity));
         _feePercent = bound(_feePercent, 0, Math.ZOC);
@@ -102,7 +104,7 @@ abstract contract EntityDonateTransferTest is EntityHarness {
 
     // Test a donation with overrides to an entity from a donor.
     function testFuzz_DonateWithOverridesSuccess(address _donor, uint256 _donationAmount, uint256 _feePercent, bool _isActive) public {
-        _donationAmount = bound(_donationAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _donationAmount = bound(_donationAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         vm.assume(_donor != treasury);
         vm.assume(_donor != address(entity));
         _feePercent = bound(_feePercent, onePercentZoc, Math.ZOC);
@@ -149,9 +151,154 @@ abstract contract EntityDonateTransferTest is EntityHarness {
         entity.donateWithOverrides(_donationAmount);
     }
 
+    // Test a valid payout from an entity to an address
+    function testFuzz_PayoutSuccess(address _receiver, uint256 _amount, uint256 _feePercent, uint _actorIndex, bool _isActive) public {
+        vm.assume(address(entity) != _receiver);
+        vm.assume(treasury != _receiver);
+        address _actor = payoutActors[_actorIndex % payoutActors.length];
+        _amount = bound(_amount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
+        _feePercent = bound(_feePercent, 0, Math.ZOC);
+        // preset the requested amount of basetokens into the entity
+        _setEntityBalance(entity, _amount);
+        ERC20 _baseToken = globalTestRegistry.baseToken();
+        vm.startPrank(board);
+        globalTestRegistry.setEntityStatus(entity, _isActive);
+        globalTestRegistry.setDefaultPayoutFee(testEntityType, uint32(_feePercent));
+        vm.stopPrank();
+        uint256 _amountFee = Math.zocmul(_amount, _feePercent);
+        uint256 _amountSent = _amount - _amountFee;
+        vm.expectEmit(true, true, false, true);
+        emit EntityFundsPaidOut(address(entity), _receiver, _amount, _amountFee);
+        vm.prank(_actor);
+        entity.payout(_receiver, _amount);
+        assertEq(_baseToken.balanceOf(address(entity)), 0);
+        assertEq(entity.balance(), 0);
+        assertEq(_baseToken.balanceOf(address(_receiver)), _amountSent);
+        assertEq(_baseToken.balanceOf(treasury), _amountFee);
+    }
+
+    // Test a valid payout with sender override from an entity to an address
+    function testFuzz_PayoutWithSenderOverridesSuccess(address _receiver, uint256 _amount, uint256 _feePercent, uint _actorIndex, bool _isActive) public {
+        vm.assume(address(entity) != _receiver);
+        vm.assume(treasury != _receiver);
+        address _actor = payoutActors[_actorIndex % payoutActors.length];
+        _amount = bound(_amount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
+        _feePercent = bound(_feePercent, onePercentZoc, Math.ZOC);
+        // preset the requested amount of basetokens into the entity
+        _setEntityBalance(entity, _amount);
+        ERC20 _baseToken = globalTestRegistry.baseToken();
+        vm.startPrank(board);
+        globalTestRegistry.setEntityStatus(entity, _isActive);
+        globalTestRegistry.setDefaultPayoutFee(testEntityType, uint32(_feePercent));
+        globalTestRegistry.setPayoutFeeOverride(entity, uint32(_feePercent - onePercentZoc));
+        vm.stopPrank();
+        uint256 _amountFee = Math.zocmul(_amount, _feePercent - onePercentZoc);
+        uint256 _amountSent = _amount - _amountFee;
+        vm.expectEmit(true, true, false, true);
+        emit EntityFundsPaidOut(address(entity), _receiver, _amount, _amountFee);
+        vm.prank(_actor);
+        entity.payoutWithOverrides(_receiver, _amount);
+        assertEq(_baseToken.balanceOf(address(entity)), 0);
+        assertEq(entity.balance(), 0);
+        assertEq(_baseToken.balanceOf(address(_receiver)), _amountSent);
+        assertEq(_baseToken.balanceOf(treasury), _amountFee);
+    }
+
+    // Test that a payout fails when the default payout fee has been set to disallow it.
+    function testFuzz_PayoutFailInvalidAction(address _receiver, uint256 _amount, uint _actorIndex) public {
+        address _actor = payoutActors[_actorIndex % payoutActors.length];
+        _amount = bound(_amount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
+        // preset the requested amount of basetokens into the entity
+        _setEntityBalance(entity, _amount);
+        ERC20 _baseToken = globalTestRegistry.baseToken();
+        vm.prank(_actor);
+        _baseToken.approve(address(entity), _amount);
+        // set the default payout fee for the entity type to the max to disallow the payout
+        vm.prank(board);
+        globalTestRegistry.setDefaultPayoutFee(testEntityType, type(uint32).max);
+        vm.expectRevert(InvalidAction.selector);
+        vm.prank(_actor);
+        entity.payout(_receiver, _amount);
+    }
+
+    // Test that a payout fails when the caller is not authorized.
+    function testFuzz_PayoutFailUnauthorized(address _receiver, uint256 _amount, uint _actorIndex) public {
+        address _actor = payoutActors[_actorIndex % payoutActors.length];
+        _amount = bound(_amount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
+        // preset the requested amount of basetokens into the entity
+        _setEntityBalance(entity, _amount);
+        ERC20 _baseToken = globalTestRegistry.baseToken();
+        vm.prank(_actor);
+        _baseToken.approve(address(entity), _amount);
+        // set the default payout fee for the entity type to the max to disallow the payout
+        vm.prank(board);
+        globalTestRegistry.setDefaultPayoutFee(testEntityType, onePercentZoc);
+        vm.expectRevert(Unauthorized.selector);
+        vm.prank(user1);
+        entity.payout(_receiver, _amount);
+    }
+
+    // Test that a payout fails when the source entity of the transfer has insufficient funds.
+    function testFuzz_PayoutFailInsufficientFunds(address _receiver, uint256 _amount, uint _actorIndex) public {
+        address _actor = payoutActors[_actorIndex % payoutActors.length];
+        _amount = bound(_amount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
+        // set the default payout fee for the entity type to the max to disallow the payout
+        vm.prank(board);
+        globalTestRegistry.setDefaultPayoutFee(testEntityType, onePercentZoc);
+        vm.expectRevert(InsufficientFunds.selector);
+        vm.prank(_actor);
+        entity.payout(_receiver, _amount);
+    }
+
+    // Test that a payout with override fails when the default payout fee has been set to disallow it.
+    function testFuzz_PayoutWithOverridesFailInvalidAction(address _receiver, uint256 _amount, uint _actorIndex) public {
+        address _actor = payoutActors[_actorIndex % payoutActors.length];
+        _amount = bound(_amount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
+        // preset the requested amount of basetokens into the entity
+        _setEntityBalance(entity, _amount);
+        ERC20 _baseToken = globalTestRegistry.baseToken();
+        vm.prank(_actor);
+        _baseToken.approve(address(entity), _amount);
+        // set the default payout fee for the entity type to the max to disallow the payout
+        vm.prank(board);
+        globalTestRegistry.setDefaultPayoutFee(testEntityType, type(uint32).max);
+        vm.expectRevert(InvalidAction.selector);
+        vm.prank(_actor);
+        entity.payoutWithOverrides(_receiver, _amount);
+    }
+
+    // Test that a payout with override fails when the caller is not authorized.
+    function testFuzz_PayoutWithOverridesFailUnauthorized(address _receiver, uint256 _amount, uint _actorIndex) public {
+        address _actor = payoutActors[_actorIndex % payoutActors.length];
+        _amount = bound(_amount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
+        // preset the requested amount of basetokens into the entity
+        _setEntityBalance(entity, _amount);
+        ERC20 _baseToken = globalTestRegistry.baseToken();
+        vm.prank(_actor);
+        _baseToken.approve(address(entity), _amount);
+        // set the default payout fee for the entity type to the max to disallow the payout
+        vm.prank(board);
+        globalTestRegistry.setDefaultPayoutFee(testEntityType, onePercentZoc);
+        vm.expectRevert(Unauthorized.selector);
+        vm.prank(user1);
+        entity.payoutWithOverrides(_receiver, _amount);
+    }
+
+    // Test that a payout with fails when the source entity of the transfer has insufficient funds.
+    function testFuzz_PayoutWithOverridesFailInsufficientFunds(address _receiver, uint256 _amount, uint _actorIndex) public {
+        address _actor = payoutActors[_actorIndex % payoutActors.length];
+        _amount = bound(_amount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
+        // set the default payout fee for the entity type to the max to disallow the payout
+        vm.prank(board);
+        globalTestRegistry.setDefaultPayoutFee(testEntityType, onePercentZoc);
+        vm.expectRevert(InsufficientFunds.selector);
+        vm.prank(_actor);
+        entity.payoutWithOverrides(_receiver, _amount);
+    }
+
     // Test a valid transfer between 2 entities
     function testFuzz_TransferSuccess(address _manager, uint256 _amount, uint256 _feePercent, address _receivingManager, uint8 _receivingEntityTypeIndex) public {
-        _amount = bound(_amount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _amount = bound(_amount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _feePercent = bound(_feePercent, 0, Math.ZOC);
         // get the receiving entity type from the fuzzed parameter
         uint8 _receivingType = _deployEntity(_receivingEntityTypeIndex, _receivingManager);
@@ -182,7 +329,7 @@ abstract contract EntityDonateTransferTest is EntityHarness {
 
     // Test a valid transfer with sender override between 2 entities
     function testFuzz_TransferWithSenderOverrideSuccess(address _manager, uint256 _amount, uint256 _feePercent, address _receivingManager, uint8 _receivingEntityTypeIndex) public {
-        _amount = bound(_amount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _amount = bound(_amount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _feePercent = bound(_feePercent, onePercentZoc, Math.ZOC);
         // get the receiving entity type from the fuzzed parameter
         uint8 _receivingType = _deployEntity(_receivingEntityTypeIndex, _receivingManager);
@@ -215,7 +362,7 @@ abstract contract EntityDonateTransferTest is EntityHarness {
 
     // Test a valid transfer with receiver override between 2 entities
     function testFuzz_TransferWithReceiverOverrideSuccess(address _manager, uint256 _amount, uint256 _feePercent, address _receivingManager, uint8 _receivingEntityTypeIndex) public {
-        _amount = bound(_amount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _amount = bound(_amount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _feePercent = bound(_feePercent, onePercentZoc, Math.ZOC);
         // get the receiving entity type from the fuzzed parameter
         uint8 _receivingType = _deployEntity(_receivingEntityTypeIndex, _receivingManager);
@@ -381,8 +528,8 @@ abstract contract EntityDonateTransferTest is EntityHarness {
     // Test that the reconcileBalance function sweeps 'rogue' baseTokens that have been deposited into the entity contract balance,
     //  and updates the balance (less default fee) and verifies that the fee has been taken from the swept amount and deposited to the treasury
     function testFuzz_ReconcileBalanceSuccess(address _manager, uint256 _balanceAmount, uint256 _sweepAmount, uint256 _feePercent) public {
-        _balanceAmount = bound(_balanceAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
-        _sweepAmount = bound(_sweepAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _balanceAmount = bound(_balanceAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
+        _sweepAmount = bound(_sweepAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _feePercent = bound(_feePercent, 0, Math.ZOC);
         vm.startPrank(board);
         // set the default donation fee to some percentage between 0 and 100 percent
@@ -409,8 +556,8 @@ abstract contract EntityDonateTransferTest is EntityHarness {
     // Test that the reconcileBalance function sweeps 'rogue' baseTokens that have been deposited into the entity contract balance,
     //  and updates the balance (less override fee) and verifies that the fee has been taken from the swept amount and deposited to the treasury
     function testFuzz_ReconcileBalanceWithOverrideSuccess(address _manager, uint256 _balanceAmount, uint256 _sweepAmount, uint256 _feePercent) public {
-        _balanceAmount = bound(_balanceAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
-        _sweepAmount = bound(_sweepAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _balanceAmount = bound(_balanceAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
+        _sweepAmount = bound(_sweepAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _feePercent = bound(_feePercent, onePercentZoc, Math.ZOC);
         vm.startPrank(board);
         // set the default donation fee to some percentage between 1 and 100 percent
@@ -438,7 +585,7 @@ abstract contract EntityDonateTransferTest is EntityHarness {
 
     // Test that the reconcileBalance function emits an appropriate event when there are no 'rogue' baseTokens to be swept into the contract balance.
     function testFuzz_ReconcileBalanceSuccessNoTokens(address _manager, uint256 _balanceAmount, uint256 _feePercent) public {
-        _balanceAmount = bound(_balanceAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _balanceAmount = bound(_balanceAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _feePercent = bound(_feePercent, 0, Math.ZOC);
         vm.startPrank(board);
         // set the default donation fee to some percentage between 0 and 100 percent
@@ -459,8 +606,8 @@ abstract contract EntityDonateTransferTest is EntityHarness {
 
     // Test that the reconcileBalance function fails when the entity donations disallowed via default donation fee setting.
     function testFuzz_ReconcileBalanceFailInvalidAction(address _manager, uint256 _balanceAmount, uint256 _sweepAmount) public {
-        _balanceAmount = bound(_balanceAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
-        _sweepAmount = bound(_sweepAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _balanceAmount = bound(_balanceAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
+        _sweepAmount = bound(_sweepAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         vm.startPrank(board);
         // set the default donation fee to some percentage between 0 and 100 percent
         globalTestRegistry.setDefaultDonationFee(testEntityType, type(uint32).max);
@@ -499,8 +646,8 @@ abstract contract EntityDonateTransferTest is EntityHarness {
             _donor != address(entity)
         );
 
-        _donationAmount = bound(_donationAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
-        _amountOut = bound(_amountOut, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _donationAmount = bound(_donationAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
+        _amountOut = bound(_amountOut, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _feePercent = bound(_feePercent, 0, Math.ZOC); //pick default donation fee percentage between 0 and 100
         mockSwapWrapper.setAmountOut(_amountOut);
 
@@ -542,8 +689,8 @@ abstract contract EntityDonateTransferTest is EntityHarness {
             _donor != address(entity)
         );
 
-        _donationAmount = bound(_donationAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
-        _amountOut = bound(_amountOut, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _donationAmount = bound(_donationAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
+        _amountOut = bound(_amountOut, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _feePercent = bound(_feePercent, 0, Math.ZOC); //pick default donation fee percentage between 0 and 100
         mockSwapWrapper.setAmountOut(_amountOut);
 
@@ -588,8 +735,8 @@ abstract contract EntityDonateTransferTest is EntityHarness {
             _donor != address(entity)
         );
 
-        _donationAmount = bound(_donationAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
-        _amountOut = bound(_amountOut, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _donationAmount = bound(_donationAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
+        _amountOut = bound(_amountOut, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _feePercent = bound(_feePercent, 0, Math.ZOC); //pick default donation fee percentage between 0 and 100
         mockSwapWrapper.setAmountOut(_amountOut);
 
@@ -624,8 +771,8 @@ abstract contract EntityDonateTransferTest is EntityHarness {
             _donor != address(entity)
         );
 
-        _donationAmount = bound(_donationAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
-        _amountOut = bound(_amountOut, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _donationAmount = bound(_donationAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
+        _amountOut = bound(_amountOut, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _feePercent = bound(_feePercent, onePercentZoc, Math.ZOC); //pick default donation fee percentage between 1 and 100
         mockSwapWrapper.setAmountOut(_amountOut);
 
@@ -670,8 +817,8 @@ abstract contract EntityDonateTransferTest is EntityHarness {
             _donor != address(entity)
         );
 
-        _donationAmount = bound(_donationAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
-        _amountOut = bound(_amountOut, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _donationAmount = bound(_donationAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
+        _amountOut = bound(_amountOut, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _feePercent = bound(_feePercent, onePercentZoc, Math.ZOC); //pick default donation fee percentage between 1 and 100
         mockSwapWrapper.setAmountOut(_amountOut);
 
@@ -713,8 +860,8 @@ abstract contract EntityDonateTransferTest is EntityHarness {
         uint256 _sweepAmount,
         uint256 _feePercent
     ) public {
-        _balanceAmount = bound(_balanceAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
-        _sweepAmount = bound(_sweepAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _balanceAmount = bound(_balanceAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
+        _sweepAmount = bound(_sweepAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _feePercent = bound(_feePercent, 0, Math.ZOC);
 
         vm.startPrank(board);
@@ -747,8 +894,8 @@ abstract contract EntityDonateTransferTest is EntityHarness {
         uint256 _sweepAmount,
         uint256 _feePercent
     ) public {
-        _balanceAmount = bound(_balanceAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
-        _sweepAmount = bound(_sweepAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _balanceAmount = bound(_balanceAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
+        _sweepAmount = bound(_sweepAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _feePercent = bound(_feePercent, onePercentZoc, Math.ZOC);
 
         vm.startPrank(board);
@@ -783,8 +930,8 @@ abstract contract EntityDonateTransferTest is EntityHarness {
         uint256 _sweepAmount,
         uint256 _feePercent
     ) public {
-        _balanceAmount = bound(_balanceAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
-        _sweepAmount = bound(_sweepAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _balanceAmount = bound(_balanceAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
+        _sweepAmount = bound(_sweepAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _feePercent = bound(_feePercent, 0, Math.ZOC);
 
         vm.startPrank(board);
@@ -822,8 +969,8 @@ abstract contract EntityDonateTransferTest is EntityHarness {
         uint256 _sweepAmount,
         uint256 _feePercent
     ) public {
-        _balanceAmount = bound(_balanceAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
-        _sweepAmount = bound(_sweepAmount, MIN_DONATION_TRANSFER_AMOUNT, MAX_DONATION_TRANSFER_AMOUNT);
+        _balanceAmount = bound(_balanceAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
+        _sweepAmount = bound(_sweepAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _feePercent = bound(_feePercent, 0, Math.ZOC);
 
         vm.startPrank(board);
@@ -845,8 +992,8 @@ abstract contract EntityDonateTransferTest is EntityHarness {
     }
 }
 
-contract OrgDonateTransferTest is EntityDonateTransferTest {
-    // this will run all tests in EntityDonateTransferTest
+contract OrgTokenTransactionTest is EntityTokenTransactionTest {
+    // this will run all tests in EntityTokenTransactionTest
     function setUp() public override {
         super.setUp();
         entity = orgFundFactory.deployOrg("someOrgId", "someSalt");
@@ -854,8 +1001,8 @@ contract OrgDonateTransferTest is EntityDonateTransferTest {
     }
 }
 
-contract FundDonateTransferTest is EntityDonateTransferTest {
-    // this will run all tests in EntityDonateTransferTest
+contract FundTokenTransactionTest is EntityTokenTransactionTest {
+    // this will run all tests in EntityTokenTransactionTest
     function setUp() public override {
         super.setUp();
         entity = orgFundFactory.deployFund(address(0x1111), "someSalt");

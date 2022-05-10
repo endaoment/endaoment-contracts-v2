@@ -17,8 +17,8 @@ contract DeployTest is DeployAll, DSTestPlus {
   uint8 public constant OrgType = 1;
   uint8 public constant FundType = 2;
 
-  uint256 public constant MIN_DONATION_TRANSFER_AMOUNT = 5; // 0.0005 cents USDC
-  uint256 public constant MAX_DONATION_TRANSFER_AMOUNT = 1_000_000_000_000_000; // $1 Billion USDC
+  uint256 public constant MIN_ENTITY_TRANSACTION_AMOUNT = 5; // 0.0005 cents USDC
+  uint256 public constant MAX_ENTITY_TRANSACTION_AMOUNT = 1_000_000_000_000_000; // $1 Billion USDC
 
   // special targets for auth permissions
   address orgTarget = address(bytes20(bytes.concat("entity", bytes1(uint8(1)))));
@@ -29,6 +29,8 @@ contract DeployTest is DeployAll, DSTestPlus {
   bytes4 public setEntityStatus = bytes4(keccak256("setEntityStatus(address,bool)"));
   bytes4 public setDefaultDonationFee = bytes4(keccak256("setDefaultDonationFee(uint8,uint32)"));
   bytes4 public setDonationFeeReceiverOverride = bytes4(keccak256("setDonationFeeReceiverOverride(address,uint32)"));
+  bytes4 public setDefaultPayoutFee = bytes4(keccak256("setDefaultPayoutFee(uint8,uint32)"));
+  bytes4 public setPayoutFeeOverride = bytes4(keccak256("setPayoutFeeOverride(address,uint32)"));
   bytes4 public setDefaultTransferFee = bytes4(keccak256("setDefaultTransferFee(uint8,uint8,uint32)"));
   bytes4 public setTransferFeeSenderOverride = bytes4(keccak256("setTransferFeeSenderOverride(address,uint8,uint32)"));
   bytes4 public setTransferFeeReceiverOverride = bytes4(keccak256("setTransferFeeReceiverOverride(uint8,address,uint32)"));
@@ -37,8 +39,11 @@ contract DeployTest is DeployAll, DSTestPlus {
 
   // Entity operations
   bytes4 public entityTransfer = bytes4(keccak256("transfer(address,uint256)"));
+  bytes4 public entityTransferWithOverrides = bytes4(keccak256("transferWithOverrides(address,uint256)"));
   bytes4 public setOrgId = bytes4(keccak256("setOrgId(bytes32)"));
   bytes4 public setManager = bytes4(keccak256("setManager(address)"));
+  bytes4 public payout = bytes4(keccak256("payout(address,uint256)"));
+  bytes4 public payoutWithOverrides = bytes4(keccak256("payoutWithOverrides(address,uint256)"));
 
   // Portfolio operations
   bytes4 public setRedemptionFee = bytes4(keccak256("setRedemptionFee(uint256)"));
@@ -81,9 +86,18 @@ contract DeployTest is DeployAll, DSTestPlus {
 
     // TODO: Give board & capital committee mint capability (Use functional requirements doc)
 
+    // role 1: P_01	Payout capability from entities
+    globalTestRegistry.setRoleCapability(1, orgTarget, payout, true);
+    globalTestRegistry.setRoleCapability(1, fundTarget, payout, true);
+    globalTestRegistry.setRoleCapability(1, orgTarget, payoutWithOverrides, true);
+    globalTestRegistry.setRoleCapability(1, fundTarget, payoutWithOverrides, true);
+    globalTestRegistry.setUserRole(capitalCommittee, 1, true);
+
     // role 2: P_02	Transfer balances between entities
     globalTestRegistry.setRoleCapability(2, orgTarget, entityTransfer, true);
     globalTestRegistry.setRoleCapability(2, fundTarget, entityTransfer, true);
+    globalTestRegistry.setRoleCapability(2, orgTarget, entityTransferWithOverrides, true);
+    globalTestRegistry.setRoleCapability(2, fundTarget, entityTransferWithOverrides, true);
     globalTestRegistry.setUserRole(capitalCommittee, 2, true);
 
     // role 5: P_05	Enable/disable entities
@@ -102,6 +116,7 @@ contract DeployTest is DeployAll, DSTestPlus {
     // role 8: P_08 Change entity's fees
     globalTestRegistry.setRoleCapability(8, address(globalTestRegistry), setDefaultDonationFee, true);
     globalTestRegistry.setRoleCapability(8, address(globalTestRegistry), setDefaultTransferFee, true);
+    globalTestRegistry.setRoleCapability(8, address(globalTestRegistry), setDefaultPayoutFee, true);
     globalTestRegistry.setUserRole(programCommittee, 8, true);
 
     // role 10: P_10 Change portfolio Management Fee
@@ -110,6 +125,7 @@ contract DeployTest is DeployAll, DSTestPlus {
 
     // role 11: P_11 Change entity's outbound/inbound override fees
     globalTestRegistry.setRoleCapability(11, address(globalTestRegistry), setDonationFeeReceiverOverride, true);
+    globalTestRegistry.setRoleCapability(11, address(globalTestRegistry), setPayoutFeeOverride, true);
     globalTestRegistry.setRoleCapability(11, address(globalTestRegistry), setTransferFeeSenderOverride, true);
     globalTestRegistry.setRoleCapability(11, address(globalTestRegistry), setTransferFeeReceiverOverride, true);
     globalTestRegistry.setUserRole(programCommittee, 11, true);

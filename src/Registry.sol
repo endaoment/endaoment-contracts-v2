@@ -28,25 +28,31 @@ contract Registry is RolesAuthority {
     /// @notice Base Token address is the stable coin contract used throughout the system.
     ERC20 public immutable baseToken;
 
-    /// @notice mapping of approved factory contracts that are allowed to register new Entities.
+    /// @notice Mapping of approved factory contracts that are allowed to register new Entities.
     mapping (address => bool) public isApprovedFactory;
-    /// @notice mapping of active status of entities.
+    /// @notice Mapping of active status of entities.
     mapping (Entity => bool) public isActiveEntity;
 
-    /// @notice maps entity type to fee percentage stored as a zoc, where uint32 MAX represents 0.
+    /// @notice Maps entity type to donation fee percentage stored as a zoc, where type(uint32).max represents 0.
     mapping (uint8 => uint32) defaultDonationFee;
-    /// @notice maps specific entity receiver to fee percentage stored as a zoc.
+    /// @notice Maps specific entity receiver to donation fee percentage stored as a zoc.
     mapping (Entity => uint32) donationFeeReceiverOverride;
 
-    /// @notice maps sender entity type to receiver entity type to fee percentage as a zoc.
+    /// @notice Maps entity type to payout fee percentage stored as a zoc, where type(uint32).max represents 0.
+    mapping (uint8 => uint32) defaultPayoutFee;
+    /// @notice Maps specific entity sender to payout fee percentage stored as a zoc.
+    mapping (Entity => uint32) payoutFeeOverride;
+
+    /// @notice Maps sender entity type to receiver entity type to fee percentage as a zoc.
     mapping (uint8 => mapping(uint8 => uint32)) defaultTransferFee;
-    /// @notice maps specific entity sender to receiver entity type to fee percentage as a zoc.
+    /// @notice Maps specific entity sender to receiver entity type to fee percentage as a zoc.
     mapping (Entity => mapping(uint8 => uint32)) transferFeeSenderOverride;
-    /// @notice maps sender entity type to specific entity receiver to fee percentage as a zoc.
+    /// @notice Maps sender entity type to specific entity receiver to fee percentage as a zoc.
     mapping (uint8 => mapping(Entity => uint32)) transferFeeReceiverOverride;
-    /// @notice maps swap wrappers to their enabled/disabled status.
+    /// @notice Maps swap wrappers to their enabled/disabled status.
+
     mapping (ISwapWrapper => bool) public isSwapperSupported;
-    /// @notice maps portfolios to their enabled/disabled status.
+    /// @notice Maps portfolios to their enabled/disabled status.
     mapping (Portfolio => bool) public isActivePortfolio;
 
     // --- Events ---
@@ -68,6 +74,12 @@ contract Registry is RolesAuthority {
 
     /// @notice Emitted when a donation fee override is set for a specific receiving entity.
     event DonationFeeReceiverOverrideSet(address indexed entity, uint32 fee);
+
+    /// @notice Emitted when a default payout fee is set for an entity type.
+    event DefaultPayoutFeeSet(uint8 indexed entityType, uint32 fee);
+
+    /// @notice Emitted when a payout fee override is set for a specific sender entity.
+    event PayoutFeeOverrideSet(address indexed entity, uint32 fee);
 
     /// @notice Emitted when a default transfer fee is set for transfers between entity types.
     event DefaultTransferFeeSet(uint8 indexed fromEntityType, uint8 indexed toEntityType, uint32 fee);
@@ -100,8 +112,8 @@ contract Registry is RolesAuthority {
     // --- Internal fns ---
 
     /**
-     * @notice Fee parsing to convert the special "uint32 max" value to zero, and zero to the "max".
-     * @dev After converting, "uint32 max" will cause overflow/revert when used as a fee percentage multiplier and zero will mean no fee.
+     * @notice Fee parsing to convert the special "type(uint32).max" value to zero, and zero to the "max".
+     * @dev After converting, "type(uint32).max" will cause overflow/revert when used as a fee percentage multiplier and zero will mean no fee.
      * @param _value The value to be converted.
      * @return The parsed fee to use.
      */
@@ -190,11 +202,33 @@ contract Registry is RolesAuthority {
     }
 
     /**
+     * @notice Gets default payout fee pct (as a zoc) for an Entity.
+     * @param _entity The sender entity of the payout for which the fee is being fetched.
+     * @return uint32 The default payout fee for the entity's type.
+     * @dev Makes use of _parseFeeWithFlip, so if no default exists, "max" will be returned.
+     */
+    function getPayoutFee(Entity _entity) external view returns (uint32) {
+       return _parseFeeWithFlip(defaultPayoutFee[_entity.entityType()]);
+    }
+
+    /**
+     * @notice Gets lowest possible payout fee pct (as a zoc) for an Entity, among default and override.
+     * @param _entity The sender entity of the payout for which the fee is being fetched.
+     * @return uint32 The minimum of the default payout fee and the sender's fee override.
+     * @dev Makes use of _parseFeeWithFlip, so if no default or override exists, "max" will be returned.
+     */
+    function getPayoutFeeWithOverrides(Entity _entity) external view returns (uint32) {
+        uint32 _default = _parseFeeWithFlip(defaultPayoutFee[_entity.entityType()]);
+        uint32 _senderOverride = _parseFeeWithFlip(payoutFeeOverride[_entity]);
+        return _senderOverride < _default ? _senderOverride : _default;
+    }
+
+    /**
      * @notice Gets default transfer fee pct (as a zoc) between sender & receiver Entities.
      * @param _sender The sending entity of the transfer for which the fee is being fetched.
      * @param _receiver The receiving entity of the transfer for which the fee is being fetched.
      * @return uint32 The default transfer fee.
-     * @dev Makes use of _parseFeeWithFlip, so if no default exists, "uint32 max" will be returned.
+     * @dev Makes use of _parseFeeWithFlip, so if no default exists, "type(uint32).max" will be returned.
      */
     function getTransferFee(Entity _sender, Entity _receiver) external view returns (uint32) {
         return _parseFeeWithFlip(defaultTransferFee[_sender.entityType()][_receiver.entityType()]);
@@ -205,7 +239,7 @@ contract Registry is RolesAuthority {
      * @param _sender The sending entity of the transfer for which the fee is being fetched.
      * @param _receiver The receiving entity of the transfer for which the fee is being fetched.
      * @return uint32 The minimum of the default transfer fee, and sender and receiver overrides.
-     * @dev Makes use of _parseFeeWithFlip, so if no default or overrides exist, "uint32 max" will be returned.
+     * @dev Makes use of _parseFeeWithFlip, so if no default or overrides exist, "type(uint32).max" will be returned.
      */
     function getTransferFeeWithOverrides(Entity _sender, Entity _receiver) external view returns (uint32) {
         uint32 _default = _parseFeeWithFlip(defaultTransferFee[_sender.entityType()][_receiver.entityType()]);
@@ -236,6 +270,26 @@ contract Registry is RolesAuthority {
     function setDonationFeeReceiverOverride(Entity _entity, uint32 _fee) external requiresAuth {
         donationFeeReceiverOverride[_entity] = _parseFeeWithFlip(_fee);
         emit DonationFeeReceiverOverrideSet(address(_entity), _fee);
+    }
+
+    /**
+     * @notice Sets the default payout fee for an entity type.
+     * @param _entityType Entity type.
+     * @param _fee The fee percentage to be set (a zoc).
+     */
+    function setDefaultPayoutFee(uint8 _entityType, uint32 _fee) external requiresAuth {
+        defaultPayoutFee[_entityType] = _parseFeeWithFlip(_fee);
+        emit DefaultPayoutFeeSet(_entityType, _fee);
+    }
+
+    /**
+     * @notice Sets the payout fee override for a specific entity.
+     * @param _entity Entity.
+     * @param _fee The overriding fee (a zoc).
+     */
+    function setPayoutFeeOverride(Entity _entity, uint32 _fee) external requiresAuth {
+        payoutFeeOverride[_entity] = _parseFeeWithFlip(_fee);
+        emit PayoutFeeOverrideSet(address(_entity), _fee);
     }
 
     /**
