@@ -281,8 +281,7 @@ abstract contract Entity is EndaomentAuth {
     function portfolioDeposit(Portfolio _portfolio, uint256 _amount, bytes calldata _data) external requiresManager returns (uint256) {
         if(!registry.isActivePortfolio(_portfolio)) revert PortfolioInactive();
         balance -= _amount;
-        baseToken.safeApprove(address(_portfolio), 0);
-        baseToken.safeApprove(address(_portfolio), _amount);
+        baseToken.approve(address(_portfolio), _amount);
         uint256 _shares = _portfolio.deposit(_amount, _data);
         emit EntityDeposit(address(_portfolio), _amount, _shares);
         return _shares;

@@ -84,8 +84,7 @@ contract SingleTokenPortfolio is Portfolio {
         ERC20 _baseToken = registry.baseToken();
         _baseToken.safeTransferFrom(msg.sender, address(this), _amountBaseToken);
         (uint256 _amountSwap, uint256 _amountFee) = _calculateFee(_amountBaseToken, depositFee);
-        _baseToken.safeApprove(address(_swapWrapper), 0);
-        _baseToken.safeApprove(address(_swapWrapper), _amountBaseToken);
+        _baseToken.approve(address(_swapWrapper), _amountBaseToken);
         uint256 _assets = _swapWrapper.swap(address(_baseToken), asset, address(this), _amountSwap, _data[20:]);
         totalAssets += _assets;
         // Convert totalAssets to baseToken unit to measure against cap.
