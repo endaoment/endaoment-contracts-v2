@@ -155,13 +155,10 @@ contract OrgFundFactory is EntityFactory {
 
     /// @dev Pulls base tokens from sender and donates them to the entity.
     function _donate(Entity _entity, uint256 _amount) internal {
-        ERC20 _token = registry.baseToken();
-        // CONSIDER: if Entity's reconcileBalance method was public, we could transfer straight to the org and then
-        // call it to process the fees. Probably cheaper, though perhaps semantically weird.
-        _token.safeTransferFrom(msg.sender, address(this), _amount);
-        // Implicit assumption that base token does not require zeroing approvals
-        _token.approve(address(_entity), _amount);
-        _entity.donate(_amount);
+        // Send tokens directly to the entity, then reconcile its balance. Cheaper than doing a double transfer
+        // and calling `donate`.
+        registry.baseToken().safeTransferFrom(msg.sender, address(_entity), _amount);
+        _entity.reconcileBalance();
     }
 
     /// @dev Pulls ERC20 tokens, or receives ETH, and swaps and donates them to the entity.
