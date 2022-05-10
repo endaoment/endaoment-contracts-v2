@@ -625,15 +625,6 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         vm.stopPrank();
     }
 
-    // Test that the reconcileBalance function fails if not called by the entity manager.
-    function testFuzz_ReconcileBalanceFailsUnauthorized(address _manager) public {
-        vm.prank(board);
-        entity.setManager(_manager);
-        vm.expectRevert(Unauthorized.selector);
-        vm.prank(user1);
-        entity.reconcileBalance();
-    }
-
     function testFuzz_SwapAndDonateSuccess(
         address _donor,
         uint256 _donationAmount,

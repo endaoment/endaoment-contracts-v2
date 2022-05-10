@@ -311,7 +311,7 @@ abstract contract Entity is EndaomentAuth {
      * besides Entity:donate or Entity:transfer. For example, if this Entity receives a normal ERC20 transfer of baseToken, the
      * amount received will be unavailable for Entity use until this method is called to adjust the balance and process fees.
      */
-    function reconcileBalance() external requiresManager {
+    function reconcileBalance() external {
         uint256 _sweepAmount = registry.baseToken().balanceOf(address(this)) - balance;
         uint32 _feeMultiplier = registry.getDonationFeeWithOverrides(this);
 

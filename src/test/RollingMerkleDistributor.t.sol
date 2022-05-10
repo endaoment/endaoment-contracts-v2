@@ -18,7 +18,7 @@ contract RollingMerkleDistributorTest is RollingMerkleDistributorTypes, DeployTe
 
     address[] public actors = [board, tokenTrust];
 
-    function setUp() public override {
+    function setUp() public virtual override {
         super.setUp();
         token = IERC20(address(ndao));
 
@@ -43,6 +43,54 @@ contract RollingMerkleDistributorTest is RollingMerkleDistributorTypes, DeployTe
     function expectEvent_Claimed(uint256 _window, uint256 _index, address _claimant, uint256 _amount) public {
         vm.expectEmit(true, true, true, true);
         emit Claimed(_window, _index, _claimant, _amount);
+    }
+
+    // Makes a Merkle tree leaf node for the index, claimant, and amount provided.
+    function makeNode(uint256 _index, address _claimant, uint256 _amount) public pure returns (bytes32) {
+        return keccak256(abi.encodePacked(_index, _claimant, _amount));
+    }
+
+    uint256 MAX_TREE_SIZE = 10000; // 10,000 claimants
+    uint256 MAX_AMOUNT = 1000000000 * 1e18; // 1 billion tokens
+
+    // Make an address from two integers.
+    function makeAddress(uint256 _a, uint256 _b) public pure returns (address) {
+        return address(uint160(uint256(keccak256(abi.encodePacked(_a, _b)))));
+    }
+
+    // Takes some parameters and a seed and uses it to create a large pseudorandom Merkle tree with the
+    // requested claimant and amount stuffed into somewhere. Returns the Merkle root, and the proof and
+    // index for the claimant.
+    function makeBigTree(
+        address _claimant,
+        uint256 _amount,
+        uint256 _seed
+    ) public returns (bytes32 _root, bytes32[] memory _proof, uint256 _claimantIndex) {
+        uint256 _seedHash1 = uint256(keccak256(abi.encode(_seed)));
+        uint256 _seedHash2 = uint256(keccak256(abi.encode(_seedHash1)));
+
+        uint256 _treeSize = bound(_seed, 2, MAX_TREE_SIZE);
+        _claimantIndex = bound(_seedHash1, 0, _treeSize - 1);
+        bytes32[] memory _tree = new bytes32[](_treeSize);
+
+        for (uint256 _index = 0; _index < _treeSize; _index++) {
+            bytes32 _node;
+
+            if (_index == _claimantIndex) {
+                _node = makeNode(_index, _claimant, _amount);
+            } else {
+                _node = makeNode(
+                    _index,
+                    makeAddress(_index, _seed),
+                    bound(_seedHash2, 0, MAX_AMOUNT)
+                );
+            }
+
+            _tree[_index] = _node;
+        }
+
+        _root = merkle.getRoot(_tree);
+        _proof = merkle.getProof(_tree, _claimantIndex);
     }
 }
 
@@ -158,54 +206,6 @@ contract Rollover is RollingMerkleDistributorTest {
 
 // Tests making claims from the Rolling Merkle Distributor.
 contract Claim is RollingMerkleDistributorTest {
-
-    // Makes a Merkle tree leaf node for the index, claimant, and amount provided.
-    function makeNode(uint256 _index, address _claimant, uint256 _amount) public pure returns (bytes32) {
-        return keccak256(abi.encodePacked(_index, _claimant, _amount));
-    }
-
-    uint256 MAX_TREE_SIZE = 10000; // 10,000 claimants
-    uint256 MAX_AMOUNT = 1000000000 * 1e18; // 1 billion tokens
-
-    // Make an address from two integers.
-    function makeAddress(uint256 _a, uint256 _b) public pure returns (address) {
-        return address(uint160(uint256(keccak256(abi.encodePacked(_a, _b)))));
-    }
-
-    // Takes some parameters and a seed and uses it to create a large pseudorandom Merkle tree with the
-    // requested claimant and amount stuffed into somewhere. Returns the Merkle root, and the proof and
-    // index for the claimant.
-    function makeBigTree(
-        address _claimant,
-        uint256 _amount,
-        uint256 _seed
-    ) public returns (bytes32 _root, bytes32[] memory _proof, uint256 _claimantIndex) {
-        uint256 _seedHash1 = uint256(keccak256(abi.encode(_seed)));
-        uint256 _seedHash2 = uint256(keccak256(abi.encode(_seedHash1)));
-
-        uint256 _treeSize = bound(_seed, 2, MAX_TREE_SIZE);
-        _claimantIndex = bound(_seedHash1, 0, _treeSize - 1);
-        bytes32[] memory _tree = new bytes32[](_treeSize);
-
-        for (uint256 _index = 0; _index < _treeSize; _index++) {
-            bytes32 _node;
-
-            if (_index == _claimantIndex) {
-                _node = makeNode(_index, _claimant, _amount);
-            } else {
-                _node = makeNode(
-                    _index,
-                    makeAddress(_index, _seed),
-                    bound(_seedHash2, 0, MAX_AMOUNT)
-                );
-            }
-
-            _tree[_index] = _node;
-        }
-
-        _root = merkle.getRoot(_tree);
-        _proof = merkle.getProof(_tree, _claimantIndex);
-    }
 
     function testFuzz_CannotClaimOutsideOfWindow(
         uint256 _index,
