@@ -30,8 +30,9 @@ contract SingleTokenPortfolio is Portfolio {
         string memory _shareTokenName,
         string memory _shareTokenSymbol,
         uint256 _cap,
+        uint256 _depositFee,
         uint256 _redemptionFee
-    ) Portfolio(_registry, _asset, _shareTokenName, _shareTokenSymbol, _cap, _redemptionFee) {
+    ) Portfolio(_registry, _asset, _shareTokenName, _shareTokenSymbol, _cap, _depositFee, _redemptionFee) {
         exchangeRate = Math.WAD;
     }
 
@@ -44,6 +45,7 @@ contract SingleTokenPortfolio is Portfolio {
         totalAssets -= _amountAssets;
         exchangeRate = Math.WAD * totalAssets / totalSupply;
         ERC20(asset).safeTransfer(registry.treasury(), _amountAssets);
+        emit FeesTaken(_amountAssets);
     }
 
     /**
@@ -81,14 +83,17 @@ contract SingleTokenPortfolio is Portfolio {
 
         ERC20 _baseToken = registry.baseToken();
         _baseToken.safeTransferFrom(msg.sender, address(this), _amountBaseToken);
+        (uint256 _amountSwap, uint256 _amountFee) = _calculateFee(_amountBaseToken, depositFee);
         _baseToken.safeApprove(address(_swapWrapper), 0);
         _baseToken.safeApprove(address(_swapWrapper), _amountBaseToken);
-        uint256 _assets = _swapWrapper.swap(address(_baseToken), asset, address(this), _amountBaseToken, _data[20:]);
+        uint256 _assets = _swapWrapper.swap(address(_baseToken), asset, address(this), _amountSwap, _data[20:]);
         totalAssets += _assets;
         // Convert totalAssets to baseToken unit to measure against cap.
-        if(totalAssets * _amountBaseToken / _assets > cap) revert ExceedsCap();
+        if(totalAssets * _amountSwap / _assets > cap) revert ExceedsCap();
         uint256 _shares = convertToShares(_assets);
+        if (_shares == 0) revert RoundsToZero();
         _mint(msg.sender, _shares);
+        _baseToken.transfer(registry.treasury(), _amountFee);
         emit Deposit(msg.sender, msg.sender, _assets, _shares);
         return _shares;
     }
@@ -111,14 +116,7 @@ contract SingleTokenPortfolio is Portfolio {
         ERC20(asset).safeApprove(address(_swapWrapper), 0);
         ERC20(asset).safeApprove(address(_swapWrapper), _assetsOut);
         uint256 _baseTokenOut = _swapWrapper.swap(asset, address(_baseToken), address(this), _assetsOut, _data[20:]);
-        uint256 _fee;
-        uint256 _netAmount;
-        unchecked {
-            // unchecked as no possibility of overflow with baseToken precision
-            _fee = _baseTokenOut.zocmul(redemptionFee);
-            // unchecked as the _feeMultiplier check with revert above protects against overflow
-            _netAmount = _baseTokenOut - _fee;
-        }
+        (uint256 _netAmount, uint256 _fee) = _calculateFee(_baseTokenOut, redemptionFee);
         _baseToken.safeTransfer(registry.treasury(), _fee);
         _baseToken.safeTransfer(msg.sender, _netAmount);
         emit Redeem(msg.sender, msg.sender, _assetsOut, _amountShares);

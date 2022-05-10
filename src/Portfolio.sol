@@ -9,9 +9,10 @@ import { RolesAuthority } from "./lib/auth/authorities/RolesAuthority.sol";
 import { Math } from "./lib/Math.sol";
 
 abstract contract Portfolio is ERC20, EndaomentAuth {
-
+    using Math for uint256;
     Registry public immutable registry;
     uint256 public cap;
+    uint256 public depositFee;
     uint256 public redemptionFee;
     address public immutable asset;
 
@@ -20,6 +21,8 @@ abstract contract Portfolio is ERC20, EndaomentAuth {
     error NotEntity();
     error ExceedsCap();
     error PercentageOver100();
+    error RoundsToZero();
+    error CallFailed(bytes response);
 
     /// @notice `sender` has exchanged `assets` for `shares`, and transferred those `shares` to `receiver`.
     event Deposit(address indexed sender, address indexed receiver, uint256 assets, uint256 shares);
@@ -30,19 +33,27 @@ abstract contract Portfolio is ERC20, EndaomentAuth {
     /// @notice Event emitted when `cap` is set.
     event CapSet(uint256 cap);
 
+    /// @notice Event emitted when `depositFee` is set.
+    event DepositFeeSet(uint256 fee);
+
     /// @notice Event emitted when `redemptionFee` is set.
     event RedemptionFeeSet(uint256 fee);
+
+    // @notice Event emitted when management takes fees.
+    event FeesTaken(uint256 amount);
 
     /**
      * @param _registry Endaoment registry.
      * @param _name Name of the ERC20 Portfolio share tokens.
      * @param _symbol Symbol of the ERC20 Portfolio share tokens.
      * @param _cap Amount in baseToken that value of totalAssets should not exceed.
+     * @param _depositFee Percentage fee as ZOC that will go to treasury on asset deposit.
      * @param _redemptionFee Percentage fee as ZOC that will go to treasury on share redemption.
      */
-    constructor(Registry _registry, address _asset, string memory _name, string memory _symbol, uint256 _cap, uint256 _redemptionFee) ERC20(_name, _symbol, ERC20(_asset).decimals()) {
+    constructor(Registry _registry, address _asset, string memory _name, string memory _symbol, uint256 _cap, uint256 _depositFee, uint256 _redemptionFee) ERC20(_name, _symbol, ERC20(_asset).decimals()) {
         registry = _registry;
         if(_redemptionFee > Math.ZOC) revert PercentageOver100();
+        depositFee = _depositFee;
         redemptionFee = _redemptionFee;
         cap = _cap;
         asset = _asset;
@@ -64,6 +75,16 @@ abstract contract Portfolio is ERC20, EndaomentAuth {
     function setCap(uint256 _amount) external virtual requiresAuth {
         cap = _amount;
         emit CapSet(_amount);
+    }
+
+    /**
+     * @notice Set deposit fee.
+     * @param _pct Percentage as ZOC (e.g. 1000 = 10%).
+     */
+    function setDepositFee(uint256 _pct) external virtual requiresAuth {
+        if(_pct > Math.ZOC) revert PercentageOver100();
+        depositFee = _pct;
+        emit DepositFeeSet(_pct);
     }
 
     /**
@@ -128,5 +149,37 @@ abstract contract Portfolio is ERC20, EndaomentAuth {
     /// @notice `transferFrom` disabled on Portfolio tokens.
     function approve(address /** to */, uint256 /** amount */) public pure override returns (bool) {
         revert TransferDisallowed();
+    }
+
+
+    /**
+     * @notice Permissioned method that allows Endaoment admin to make arbitrary calls acting as this Portfolio.
+     * @param _target The address to which the call will be made.
+     * @param _value The ETH value that should be forwarded with the call.
+     * @param _data The calldata that will be sent with the call.
+     * @return _return The data returned by the call.
+     */
+    function callAsPortfolio(
+        address _target,
+        uint256 _value,
+        bytes memory _data
+    ) external payable requiresAuth returns (bytes memory) {
+        (bool _success, bytes memory _response) = payable(_target).call{value: _value}(_data);
+        if (!_success) revert CallFailed(_response);
+        return _response;
+    }
+
+    /// @dev Internal helper method to calculate the fee on a base token amount for a given fee multiplier.
+    function _calculateFee(
+        uint256 _amount,
+        uint256 _feeMultiplier
+    ) internal pure returns (uint256 _netAmount, uint256 _fee) {
+        if (_feeMultiplier > Math.ZOC) revert PercentageOver100();
+        unchecked {
+            // unchecked as no possibility of overflow with baseToken precision
+            _fee = _amount.zocmul(_feeMultiplier);
+            // unchecked as the _feeMultiplier check with revert above protects against overflow
+            _netAmount = _amount - _fee;
+        }
     }
 }

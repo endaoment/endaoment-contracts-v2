@@ -18,7 +18,6 @@ contract YearnUSDCPortfolio is Portfolio {
     ERC20 public immutable usdc;
 
     error AssetMismatch();
-    error RoundsToZero();
     error TooFewAssets();
 
     /**
@@ -31,8 +30,9 @@ contract YearnUSDCPortfolio is Portfolio {
         Registry _registry,
         address _asset,
         uint256 _cap,
+        uint256 _depositFee,
         uint256 _redemptionFee
-    ) Portfolio(_registry, _asset, "Yearn USDC Vault Portfolio Shares", "yvUSDC-PS", _cap, _redemptionFee) {
+    ) Portfolio(_registry, _asset, "Yearn USDC Vault Portfolio Shares", "yvUSDC-PS", _cap, _depositFee, _redemptionFee) {
         usdc = registry.baseToken();
         if (address(usdc) != yvUsdc.token()) revert AssetMismatch(); // Sanity check.
         usdc.approve(address(yvUsdc), type(uint256).max);
@@ -55,7 +55,7 @@ contract YearnUSDCPortfolio is Portfolio {
         if (_assets < _amountAssets) revert TooFewAssets();
 
         ERC20(asset).safeTransfer(registry.treasury(), _amountAssets);
-
+        emit FeesTaken(_amountAssets);
     }
 
     /**
@@ -101,17 +101,19 @@ contract YearnUSDCPortfolio is Portfolio {
      */
     function deposit(uint256 _amountBaseToken, bytes calldata /* _data */) external override returns (uint256) {
         if(!_isEntity(Entity(msg.sender))) revert NotEntity();
-        if(totalAssets() + _amountBaseToken > cap) revert ExceedsCap();
-        if (_amountBaseToken > yvUsdc.availableDepositLimit()) revert ExceedsCap();
+        (uint256 _amountAssets, uint256 _amountFee) = _calculateFee(_amountBaseToken, depositFee);
+        if(totalAssets() + _amountAssets > cap) revert ExceedsCap();
+        if (_amountAssets > yvUsdc.availableDepositLimit()) revert ExceedsCap();
 
-        uint256 _shares = convertToShares(_amountBaseToken);
+        uint256 _shares = convertToShares(_amountAssets);
         if (_shares == 0) revert RoundsToZero();
 
         usdc.safeTransferFrom(msg.sender, address(this), _amountBaseToken);
+        usdc.safeTransfer(registry.treasury(), _amountFee);
         _mint(msg.sender, _shares);
-        emit Deposit(msg.sender, msg.sender, _amountBaseToken, _shares);
+        emit Deposit(msg.sender, msg.sender, _amountAssets, _shares);
 
-        yvUsdc.deposit(_amountBaseToken);
+        yvUsdc.deposit(_amountAssets);
         return _shares;
     }
 
@@ -127,14 +129,7 @@ contract YearnUSDCPortfolio is Portfolio {
 
         _burn(msg.sender, _amountShares);
 
-        uint256 _fee;
-        uint256 _netAmount;
-        unchecked {
-            // unchecked as no possibility of overflow with baseToken precision and redemption fee bound
-            _fee = _assets.zocmul(redemptionFee);
-            // unchecked as the redemptionFee bound means _fee is guaranteed to be smaller than _assets
-            _netAmount = _assets - _fee;
-        }
+        (uint256 _netAmount, uint256 _fee) = _calculateFee(_assets, redemptionFee);
         usdc.safeTransfer(registry.treasury(), _fee);
         usdc.safeTransfer(msg.sender, _netAmount);
         emit Redeem(msg.sender, msg.sender, _assets, _amountShares);

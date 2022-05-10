@@ -21,6 +21,7 @@ contract SingleTokenPortfolioTest is MockSwapperTestHarness {
     uint256 fundBalance = 1e27;
 
     event CapSet(uint256 cap);
+    event DepositFeeSet(uint256 fee);
     event RedemptionFeeSet(uint256 fee);
     event Deposit(address indexed sender, address indexed receiver, uint256 assets, uint256 shares);
     event Redeem(address indexed sender, address indexed receiver, uint256 assets, uint256 shares);
@@ -47,21 +48,22 @@ contract SingleTokenPortfolioTest is MockSwapperTestHarness {
       vm.stopPrank();
 
       // deploy portfolio
-      portfolio = new SingleTokenPortfolio(globalTestRegistry, address(testToken1), "Portfolio Share", "TPS", type(uint256).max, 0);
+      portfolio = new SingleTokenPortfolio(globalTestRegistry, address(testToken1), "Portfolio Share", "TPS", type(uint256).max, 0, 0);
       vm.prank(board);
       globalTestRegistry.setPortfolioStatus(portfolio, true);
     }
 }
 
 contract STPConstructor is SingleTokenPortfolioTest {
-  function testFuzz_Constructor(string memory _name, string memory _symbol, uint8 _decimals, uint256 _cap, uint256 _redemptionFee) public {
+  function testFuzz_Constructor(string memory _name, string memory _symbol, uint8 _decimals, uint256 _cap, uint256 _depositFee, uint256 _redemptionFee) public {
     _redemptionFee = bound(_redemptionFee, 0, Math.ZOC);
-    SingleTokenPortfolio _portfolio = new SingleTokenPortfolio(globalTestRegistry, address(testToken1), _name, _symbol, _cap, _redemptionFee);
+    SingleTokenPortfolio _portfolio = new SingleTokenPortfolio(globalTestRegistry, address(testToken1), _name, _symbol, _cap, _depositFee, _redemptionFee);
     assertEq(_name, _portfolio.name());
     assertEq(_symbol, _portfolio.symbol());
     assertEq(_portfolio.decimals(), testToken1.decimals());
     assertEq(address(testToken1), _portfolio.asset());
     assertEq(_cap, _portfolio.cap());
+    assertEq(_depositFee, _portfolio.depositFee());
     assertEq(_redemptionFee, _portfolio.redemptionFee());
     assertEq(Math.WAD, _portfolio.exchangeRate());
     assertEq(0, _portfolio.totalAssets());
@@ -83,6 +85,32 @@ contract STPSetCap is SingleTokenPortfolioTest {
     vm.prank(user1);
     vm.expectRevert(Unauthorized.selector);
     portfolio.setRedemptionFee(_cap);
+  }
+}
+
+contract STPSetDepositFee is SingleTokenPortfolioTest {
+  address[] actors = [board];
+  function testFuzz_SetDepositFee(uint _actor, uint256 _fee) public {
+    _actor = bound(_actor, 0, actors.length - 1);
+    _fee = bound(_fee, 0, Math.ZOC);
+    vm.expectEmit(false, false, false, true);
+    emit DepositFeeSet(_fee);
+    vm.prank(actors[_actor]);
+    portfolio.setDepositFee(_fee);
+    assertEq(_fee, portfolio.depositFee());
+  }
+
+  function testFuzz_SetDepositFeeFailAuth(uint256 _fee) public {
+    vm.prank(user1);
+    vm.expectRevert(Unauthorized.selector);
+    portfolio.setDepositFee(_fee);
+  }
+
+  function testFuzz_SetDepositFeeFailOver100(uint256 _fee) public {
+    _fee = bound(_fee, Math.ZOC + 1, type(uint256).max);
+    vm.prank(board);
+    vm.expectRevert(Portfolio.PercentageOver100.selector);
+    portfolio.setDepositFee(_fee);
   }
 }
 
@@ -142,8 +170,11 @@ contract STPExchangeRateConvertMath is SingleTokenPortfolioTest {
 
 contract STPDeposit is SingleTokenPortfolioTest {
   address[] actors = [manager, board, investmentCommittee];
-  function testFuzz_DepositSuccess(uint256 _amount, uint _actor) public {
+  function testFuzz_DepositSuccess(uint256 _amount, uint256 _depositFee, uint _actor) public {
     address actor = actors[_actor % actors.length];
+    _depositFee = bound(_depositFee, 0, Math.ZOC);
+    vm.prank(board);
+    portfolio.setDepositFee(_depositFee); // fuzzing deposit fee inconsequential
     _amount = bound(_amount, 1, 1e7 ether);
     bytes memory _data = abi.encodePacked(address(mockSwapWrapper), bytes(""));
     uint256 _expectedAssets = mockSwapWrapper.amountOut();
@@ -309,4 +340,129 @@ contract STPIntegrationTest is SingleTokenPortfolioTest {
     assertEq(_bobNet, baseTokenOut);
     assertEq(testToken1.balanceOf(address(portfolio)), 11); // 11 dust left in portfolio
   }
+}
+
+contract STPCallAsPortfolioTest is SingleTokenPortfolioTest {
+
+    error CallFailed(bytes response);
+
+    error AlwaysReverts();
+
+    function alwaysRevertsCustom() external pure {
+        revert AlwaysReverts();
+    }
+
+    function alwaysRevertsString() external pure {
+        revert("ALWAYS_REVERT");
+    }
+
+    function alwaysRevertsSilently() external pure {
+        revert();
+    }
+
+    function testFuzz_CanCallAsPortfolio(address _receiver, uint256 _amount) public {
+        _amount = bound(_amount, 1, type(uint256).max);
+        uint256 _initialBalance = baseToken.balanceOf(_receiver);
+
+        baseToken.mint(address(portfolio), _amount);
+
+        // Transfer tokens out via callAsPortfolio method
+        bytes memory _data = abi.encodeCall(baseToken.transfer, (_receiver, _amount));
+        vm.prank(board);
+        bytes memory _returnData = portfolio.callAsPortfolio(address(baseToken), 0, _data);
+        (bool _transferSuccess) = abi.decode(_returnData, (bool));
+
+        assertTrue(_transferSuccess);
+        assertEq(baseToken.balanceOf(_receiver) - _initialBalance, _amount);
+    }
+
+    function test_CallAsPortfolioForwardsRevertString() public {
+        // Bytes precalculated for this revert string.
+        bytes memory _expectedRevert = abi.encodeWithSelector(
+            CallFailed.selector,
+            hex"08c379a00000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000"
+            hex"000000000000000000000000000000000d414c574159535f52455645525400000000000000000000000000000000000000"
+        );
+
+        // Call a method that reverts and verify the data is forwarded.
+        bytes memory _data = abi.encodeCall(this.alwaysRevertsString, ());
+        vm.prank(board);
+        vm.expectRevert(_expectedRevert);
+        portfolio.callAsPortfolio(address(this), 0, _data);
+    }
+
+    function test_CallAsPortfolioForwardsCustomError() public {
+        // Bytes precalculated for this custom error.
+        bytes memory _expectedRevert = abi.encodeWithSelector(CallFailed.selector, hex"47e794ec");
+
+        // Call a method that reverts and verify the data is forwarded.
+        bytes memory _data = abi.encodeCall(this.alwaysRevertsCustom, ());
+        vm.prank(board);
+        vm.expectRevert(_expectedRevert);
+        portfolio.callAsPortfolio(address(this), 0, _data);
+    }
+
+    function test_CallAsPortfolioForwardsSilentRevert() public {
+        // A silent error has no additional bytes.
+        bytes memory _expectedRevert = abi.encodeWithSelector(CallFailed.selector, "");
+
+        // Call a method that reverts and no data is forwarded.
+        bytes memory _data = abi.encodeCall(this.alwaysRevertsSilently, ());
+        vm.prank(board);
+        vm.expectRevert(_expectedRevert);
+        portfolio.callAsPortfolio(address(this), 0, _data);
+    }
+
+    function testFuzz_CallAsPortfolioUnauthorized(
+        address _notAdmin,
+        address _receiver,
+        uint256 _amount
+    ) public {
+        vm.assume(_notAdmin != board);
+
+        baseToken.mint(address(portfolio), _amount);
+
+        // Attempt to transfer tokens out via callAsPortfolio method as the manager
+        bytes memory _data = abi.encodeCall(baseToken.transfer, (_receiver, _amount));
+        vm.prank(_notAdmin);
+        vm.expectRevert(Unauthorized.selector);
+        portfolio.callAsPortfolio(address(baseToken), 0, _data);
+    }
+
+    function testFuzz_CallAsPortfolioToSendETH(
+        address payable _receiver,
+        uint256 _amount
+    ) public {
+        // ensure the fuzzer hasn't picked one of our contracts, which won't have a fallback
+        vm.assume(address(_receiver).code.length == 0);
+
+        uint256 _initialBalance = _receiver.balance;
+
+        vm.deal(address(portfolio), _amount);
+
+        // Use callAsPortfolio to send ETH to receiver
+        vm.prank(board);
+        portfolio.callAsPortfolio(_receiver, _amount, "");
+
+        assertEq(address(_receiver).balance - _initialBalance, _amount);
+    }
+
+    function testFuzz_CallAsPortfolioToForwardETH(
+        address _receiver,
+        uint256 _amount
+    ) public {
+        // ensure the fuzzer hasn't picked one of our contracts, which won't have a fallback
+        vm.assume(address(_receiver).code.length == 0);
+
+        uint256 _initialBalance = _receiver.balance;
+
+        // Deploy an entity and give it an ETH balance
+        vm.deal(board, _amount);
+
+        // Use callAsPortfolio to send ETH to receiver
+        vm.prank(board);
+        portfolio.callAsPortfolio{value: _amount}(_receiver, _amount, "");
+
+        assertEq(address(_receiver).balance - _initialBalance, _amount);
+    }
 }

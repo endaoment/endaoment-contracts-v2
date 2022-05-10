@@ -45,22 +45,23 @@ contract CompoundUSDCPortfolioTest is DeployTest {
       vm.stopPrank();
 
       // deploy portfolio
-      portfolio = new CompoundUSDCPortfolio(globalTestRegistry, address(usdc), type(uint256).max, 0);
+      portfolio = new CompoundUSDCPortfolio(globalTestRegistry, address(usdc), type(uint256).max, 0, 0);
       vm.prank(board);
       globalTestRegistry.setPortfolioStatus(portfolio, true);
     }
 }
 
 contract CUPConstructor is CompoundUSDCPortfolioTest {
-  function testFuzz_Constructor(uint256 _cap, uint256 _redemptionFee) public {
+  function testFuzz_Constructor(uint256 _cap, uint256 _depositFee, uint256 _redemptionFee) public {
     _redemptionFee = bound(_redemptionFee, 0, Math.ZOC);
-    CompoundUSDCPortfolio _portfolio = new CompoundUSDCPortfolio(globalTestRegistry, address(usdc), _cap, _redemptionFee);
+    CompoundUSDCPortfolio _portfolio = new CompoundUSDCPortfolio(globalTestRegistry, address(usdc), _cap, _depositFee, _redemptionFee);
 
     assertEq(_portfolio.name(), "Compound USDC Portfolio Shares");
     assertEq(_portfolio.symbol(), "cUSDC-PS");
     assertEq(_portfolio.decimals(), usdc.decimals());
     assertEq(_portfolio.asset(), address(usdc));
     assertEq(_portfolio.cap(), _cap);
+    assertEq(_portfolio.depositFee(), _depositFee);
     assertEq(_portfolio.redemptionFee(), _redemptionFee);
     assertEq(_portfolio.totalAssets(), 0);
     assertEq(_portfolio.convertToAssets(1e6), 1e6); // Starts at 1:1

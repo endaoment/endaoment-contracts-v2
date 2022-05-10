@@ -19,7 +19,6 @@ contract CompoundUSDCPortfolio is Portfolio {
 
     error AssetMismatch();
     error CompoundError(uint256 errorCode);
-    error RoundsToZero();
 
     /**
      * @param _registry Endaoment registry.
@@ -31,8 +30,9 @@ contract CompoundUSDCPortfolio is Portfolio {
         Registry _registry,
         address _asset,
         uint256 _cap,
+        uint256 _depositFee,
         uint256 _redemptionFee
-    ) Portfolio(_registry, _asset, "Compound USDC Portfolio Shares", "cUSDC-PS", _cap, _redemptionFee) {
+    ) Portfolio(_registry, _asset, "Compound USDC Portfolio Shares", "cUSDC-PS", _cap, _depositFee, _redemptionFee) {
         usdc = registry.baseToken();
         if (address(usdc) != cusdc.underlying()) revert AssetMismatch(); // Sanity check.
         usdc.approve(address(cusdc), type(uint256).max);
@@ -81,7 +81,7 @@ contract CompoundUSDCPortfolio is Portfolio {
         uint256 _errorCode = cusdc.redeemUnderlying(_amountAssets);
         if (_errorCode != 0) revert CompoundError(_errorCode);
         ERC20(asset).safeTransfer(registry.treasury(), _amountAssets);
-        // TODO Emit event? STP doesn't emit one either.
+        emit FeesTaken(_amountAssets);
     }
 
     /**
@@ -115,20 +115,22 @@ contract CompoundUSDCPortfolio is Portfolio {
 
     /**
      * @inheritdoc Portfolio
-     * @dev Deposit the specified number of base token assets, which are deposited into Compound. The `_data`
+     * @dev Deposit the specified number of base token assets, subtract a fee, and deposit into Compound. The `_data`
      * parameter is unused.
      */
     function deposit(uint256 _amountBaseToken, bytes calldata /* _data */) external override returns (uint256) {
         if(!_isEntity(Entity(msg.sender))) revert NotEntity();
-        if(totalAssets() + _amountBaseToken > cap) revert ExceedsCap();
-        uint256 _shares = convertToShares(_amountBaseToken);
+        (uint256 _amountAssets, uint256 _amountFee) = _calculateFee(_amountBaseToken, depositFee);
+        if(totalAssets() + _amountAssets > cap) revert ExceedsCap();
+        uint256 _shares = convertToShares(_amountAssets);
         if (_shares == 0) revert RoundsToZero();
 
         usdc.safeTransferFrom(msg.sender, address(this), _amountBaseToken);
+        usdc.safeTransfer(registry.treasury(), _amountFee);
         _mint(msg.sender, _shares);
-        emit Deposit(msg.sender, msg.sender, _amountBaseToken, _shares);
+        emit Deposit(msg.sender, msg.sender, _amountAssets, _shares);
 
-        uint256 _errorCode = cusdc.mint(_amountBaseToken);
+        uint256 _errorCode = cusdc.mint(_amountAssets);
         if (_errorCode != 0) revert CompoundError(_errorCode);
 
         return _shares;
@@ -149,14 +151,7 @@ contract CompoundUSDCPortfolio is Portfolio {
 
         _burn(msg.sender, _amountShares);
 
-        uint256 _fee;
-        uint256 _netAmount;
-        unchecked {
-            // unchecked as no possibility of overflow with baseToken precision
-            _fee = _assets.zocmul(redemptionFee);
-            // unchecked as the _feeMultiplier check with revert above protects against overflow
-            _netAmount = _assets - _fee;
-        }
+        (uint256 _netAmount, uint256 _fee) = _calculateFee(_assets, redemptionFee);
         usdc.safeTransfer(registry.treasury(), _fee);
         usdc.safeTransfer(msg.sender, _netAmount);
         emit Redeem(msg.sender, msg.sender, _assets, _amountShares);
