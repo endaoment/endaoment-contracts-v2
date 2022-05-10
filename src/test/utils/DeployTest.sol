@@ -20,9 +20,10 @@ contract DeployTest is DeployAll, DSTestPlus {
   uint256 public constant MIN_DONATION_TRANSFER_AMOUNT = 5; // 0.0005 cents USDC
   uint256 public constant MAX_DONATION_TRANSFER_AMOUNT = 1_000_000_000_000_000; // $1 Billion USDC
 
-  // Entity special targets for auth permissions
+  // special targets for auth permissions
   address orgTarget = address(bytes20(bytes.concat("entity", bytes1(uint8(1)))));
   address fundTarget = address(bytes20(bytes.concat("entity", bytes1(uint8(2)))));
+  address portfolioTarget = address(bytes20("portfolio"));
 
   // Registry operations
   bytes4 public setEntityStatus = bytes4(keccak256("setEntityStatus(address,bool)"));
@@ -31,12 +32,19 @@ contract DeployTest is DeployAll, DSTestPlus {
   bytes4 public setDefaultTransferFee = bytes4(keccak256("setDefaultTransferFee(uint8,uint8,uint32)"));
   bytes4 public setTransferFeeSenderOverride = bytes4(keccak256("setTransferFeeSenderOverride(address,uint8,uint32)"));
   bytes4 public setTransferFeeReceiverOverride = bytes4(keccak256("setTransferFeeReceiverOverride(uint8,address,uint32)"));
+  bytes4 public setPortfolioStatus = bytes4(keccak256("setPortfolioStatus(address,bool)"));
   bytes4 public setTreasury = bytes4(keccak256("setTreasury(address)"));
 
   // Entity operations
   bytes4 public entityTransfer = bytes4(keccak256("transfer(address,uint256)"));
   bytes4 public setOrgId = bytes4(keccak256("setOrgId(bytes32)"));
   bytes4 public setManager = bytes4(keccak256("setManager(address)"));
+
+  // Portfolio operations
+  bytes4 public setRedemptionFee = bytes4(keccak256("setRedemptionFee(uint256)"));
+  bytes4 public setCap = bytes4(keccak256("setCap(uint256)"));
+  bytes4 public portfolioDeposit = bytes4(keccak256("portfolioDeposit(address,uint256,bytes)"));
+  bytes4 public portfolioRedeem = bytes4(keccak256("portfolioRedeem(address,uint256,bytes)"));
 
   // NDAO operations
   bytes4 public ndaoMint = bytes4(keccak256("mint(address,uint256)"));
@@ -96,12 +104,31 @@ contract DeployTest is DeployAll, DSTestPlus {
     globalTestRegistry.setRoleCapability(8, address(globalTestRegistry), setDefaultTransferFee, true);
     globalTestRegistry.setUserRole(programCommittee, 8, true);
 
+    // role 10: P_10 Change portfolio Management Fee
+    globalTestRegistry.setRoleCapability(10, portfolioTarget, setRedemptionFee, true);
+    globalTestRegistry.setUserRole(programCommittee, 10, true);
+
     // role 11: P_11 Change entity's outbound/inbound override fees
     globalTestRegistry.setRoleCapability(11, address(globalTestRegistry), setDonationFeeReceiverOverride, true);
     globalTestRegistry.setRoleCapability(11, address(globalTestRegistry), setTransferFeeSenderOverride, true);
     globalTestRegistry.setRoleCapability(11, address(globalTestRegistry), setTransferFeeReceiverOverride, true);
     globalTestRegistry.setUserRole(programCommittee, 11, true);
 
+    // role 12: P_12 Enable a new portfolio
+    globalTestRegistry.setRoleCapability(12, address(globalTestRegistry), setPortfolioStatus, true);
+    globalTestRegistry.setUserRole(investmentCommittee, 12, true);
+
+    // role 13: P_13 Enter and exit an entity balance to and from a portfolio
+    globalTestRegistry.setRoleCapability(13, fundTarget, portfolioDeposit, true);
+    globalTestRegistry.setRoleCapability(13, orgTarget, portfolioDeposit, true);
+    globalTestRegistry.setRoleCapability(13, fundTarget, portfolioRedeem, true);
+    globalTestRegistry.setRoleCapability(13, orgTarget, portfolioRedeem, true);
+    globalTestRegistry.setUserRole(investmentCommittee, 13, true);
+
+    // role 14: P_14 Change portfolio cap
+    globalTestRegistry.setRoleCapability(14, portfolioTarget, setCap, true);
+    globalTestRegistry.setUserRole(investmentCommittee, 14, true);
+    
     // role 17: P_17 NDAO Rolling Merkle Distributor Rollover
     globalTestRegistry.setRoleCapability(17, address(distributor), rollover, true);
     globalTestRegistry.setUserRole(tokenTrust, 17, true);

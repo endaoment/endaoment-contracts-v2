@@ -5,11 +5,12 @@ import { Registry } from "../Registry.sol";
 import { Math } from "../lib/Math.sol";
 import { ERC20 } from "solmate/tokens/ERC20.sol";
 import { SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
-import { console2 } from "forge-std/console2.sol";
 import { Portfolio } from "../Portfolio.sol";
 import { Fund } from "../Fund.sol";
 import { SingleTokenPortfolio } from "../portfolios/SingleTokenPortfolio.sol";
 import "forge-std/Test.sol";
+
+error PortfolioInactive();
 
 contract SingleTokenPortfolioTest is MockSwapperTestHarness {
     using SafeTransferLib for ERC20;
@@ -22,12 +23,12 @@ contract SingleTokenPortfolioTest is MockSwapperTestHarness {
     event CapSet(uint256 cap);
     event RedemptionFeeSet(uint256 fee);
     event Deposit(address indexed sender, address indexed receiver, uint256 assets, uint256 shares);
-    event Redemption(address indexed sender, address indexed receiver, uint256 assets, uint256 shares);
+    event Redeem(address indexed sender, address indexed receiver, uint256 assets, uint256 shares);
 
     // Shadows EndaomentAuth
     error Unauthorized();
 
-    function setUp() public override {
+    function setUp() public virtual override {
       super.setUp();
 
       // set donation fees to 0
@@ -68,7 +69,7 @@ contract STPConstructor is SingleTokenPortfolioTest {
 }
 
 contract STPSetCap is SingleTokenPortfolioTest {
-  address[] actors = [board];
+  address[] actors = [board, investmentCommittee];
   function testFuzz_SetCap(uint _actor, uint256 _cap) public {
     _actor = bound(_actor, 0, actors.length - 1);
     vm.expectEmit(false, false, false, true);
@@ -86,7 +87,7 @@ contract STPSetCap is SingleTokenPortfolioTest {
 }
 
 contract STPSetRedemptionFee is SingleTokenPortfolioTest {
-  address[] actors = [board];
+  address[] actors = [board, programCommittee];
   function testFuzz_SetRedemptionFee(uint _actor, uint256 _fee) public {
     _actor = bound(_actor, 0, actors.length - 1);
     _fee = bound(_fee, 0, Math.ZOC);
@@ -140,14 +141,16 @@ contract STPExchangeRateConvertMath is SingleTokenPortfolioTest {
 }
 
 contract STPDeposit is SingleTokenPortfolioTest {
-  function testFuzz_DepositSuccess(uint256 _amount) public {
+  address[] actors = [manager, board, investmentCommittee];
+  function testFuzz_DepositSuccess(uint256 _amount, uint _actor) public {
+    address actor = actors[_actor % actors.length];
     _amount = bound(_amount, 1, 1e7 ether);
     bytes memory _data = abi.encodePacked(address(mockSwapWrapper), bytes(""));
     uint256 _expectedAssets = mockSwapWrapper.amountOut();
     uint256 _expectedShares = portfolio.convertToShares(_expectedAssets);
     vm.expectEmit(true, true, false, true);
     emit Deposit(address(fund), address(fund), _expectedAssets, _expectedShares);
-    vm.prank(manager);
+    vm.prank(actor);
     uint256 shares = fund.portfolioDeposit(portfolio, _amount, _data);
     assertEq(mockSwapWrapper.amountOut(), shares);
     assertEq(portfolio.balanceOf(address(fund)), shares);
@@ -176,12 +179,134 @@ contract STPDeposit is SingleTokenPortfolioTest {
     fund.portfolioDeposit(portfolio, _amountBaseToken, _data);
   }
 
-  // testFuzz_DepositExchangeRateMath - should take fees a couple times and ensure that minted shares match amountOut / exchangeRate
-  
+  function testFuzz_DepositFailNotActivePortfolio(address _notPortfolio, uint256 _amount) public {
+    vm.assume(_notPortfolio != address(portfolio));
+    vm.expectRevert(PortfolioInactive.selector);
+    vm.prank(manager);
+    fund.portfolioDeposit(Portfolio(_notPortfolio), _amount, "");
+  }
 }
 
+contract STPDepositRedeem is SingleTokenPortfolioTest {
+  address[] actors = [manager, board, investmentCommittee];
 
-// Redemption tests
-// convertToAssets / convertToShares
-// multiple deposits / redemptions from same user
-// multiple deposits / redemptions from different users
+  // 
+  function testFuzz_DepositRedeemFeeSuccess(uint256 _amountSwapDeposit, uint256 _amountSwapRedemption, uint256 _redemptionFee, uint8 _actor) public {
+    
+    // setup
+    address actor = actors[_actor % actors.length];
+    _amountSwapDeposit = bound(_amountSwapDeposit, 10000, 1e18 ether);
+    _amountSwapRedemption = bound(_amountSwapRedemption, 10000, 1e18 ether);  
+    _redemptionFee = bound(_redemptionFee, 0, Math.ZOC);
+    
+    // set redemption fee
+    vm.prank(board);
+    portfolio.setRedemptionFee(_redemptionFee);
+
+    // deposit
+    uint256 _amountIn = 5; // arbitrary baseTokenIn that will be swapped for _amountSwapDeposit
+    bytes memory _data = abi.encodePacked(address(mockSwapWrapper), bytes(""));
+    mockSwapWrapper.setAmountOut(_amountSwapDeposit);
+    vm.prank(manager);
+    uint256 _shares = fund.portfolioDeposit(portfolio, _amountIn, _data);
+
+    // redeem
+    mockSwapWrapper.setAmountOut(_amountSwapRedemption);
+    vm.prank(actor);
+    uint256 _baseToken = fund.portfolioRedeem(portfolio, _shares, _data); // full redemption
+    uint256 _expectedBaseTokenOut = _amountSwapRedemption - Math.zocmul(_amountSwapRedemption, _redemptionFee);
+    assertEq(_baseToken, _expectedBaseTokenOut);
+  }
+}
+
+contract STPIntegrationTest is SingleTokenPortfolioTest {
+  using stdStorage for StdStorage;
+
+  address alice = address(0xaffab1e);
+  address bob = address(0xbaff1ed);
+  uint256 baseTokenOut = 12345654321;
+
+  function setUp() public override {
+    super.setUp();
+    deal(address(baseToken), alice, 100e6);
+    deal(address(baseToken), bob, 100e6);
+
+    vm.prank(alice);
+    baseToken.approve(address(portfolio), type(uint256).max);
+
+    vm.prank(bob);
+    baseToken.approve(address(portfolio), type(uint256).max);
+
+    stdstore.target(address(globalTestRegistry)).sig("isActiveEntity(address)").with_key(alice).checked_write(true);
+    stdstore.target(address(globalTestRegistry)).sig("isActiveEntity(address)").with_key(bob).checked_write(true);
+  }
+
+  function deposit(address _who, uint256 _swapOut) public returns (uint256) {
+    mockSwapWrapper.setAmountOut(_swapOut);
+    vm.prank(_who);
+    return portfolio.deposit(42 /** meaningless baseToken */, abi.encodePacked(address(mockSwapWrapper), bytes("")));
+  }
+
+  function redeem(address _who, uint256 _shares) public returns (uint256) {
+    // The amount of baseTokenOut received is almost entirely dependent on the swap. Since we're using a MockSwapWrapper,
+    // any assertion about what an Entity receives from an STP is effectively a useless assertion about MockSwapWrapper,
+    // with the exception of redemptionFee-related assertions which are covered in STPDepositRedeem.
+    mockSwapWrapper.setAmountOut(baseTokenOut /** arbitrary number (see above comment) */);
+    vm.prank(_who);
+    return portfolio.redeem(_shares, abi.encodePacked(address(mockSwapWrapper), bytes("")));
+  }
+
+  function test_Integration() public {
+    // 1. Alice deposits 30e18, exchange rate 1:1
+    uint256 _aliceShares = deposit(alice, 30e18);
+    assertEq(_aliceShares, 30e18);
+    assertEq(portfolio.balanceOf(alice), _aliceShares);
+    assertEq(portfolio.convertToAssets(portfolio.balanceOf(alice)), 30e18);
+    assertEq(portfolio.convertToShares(30e18), portfolio.balanceOf(alice));
+    assertEq(portfolio.totalSupply(), _aliceShares);
+    assertEq(portfolio.totalAssets(), _aliceShares);
+    assertEq(testToken1.balanceOf(address(portfolio)), portfolio.totalAssets());
+
+    // 2. Endaoment takes 5M fees, Alice now can redeem 25e18
+    vm.prank(board);
+    portfolio.takeFees(5e18);
+
+    assertEq(portfolio.convertToAssets(portfolio.balanceOf(alice)), 25e18 - 10); // off by 10 rounding error
+    assertEq(portfolio.totalAssets(), 25e18);
+    assertEq(portfolio.totalSupply(), _aliceShares);
+    assertEq(testToken1.balanceOf(address(portfolio)), portfolio.totalAssets());
+
+    // 3. Bob deposits 60e18, Alice position remains unchanged
+    uint256 _bobShares = deposit(bob, 60e18);
+
+    // Same assertions about Alice's position
+    assertEq(_aliceShares, 30e18);
+    assertEq(portfolio.balanceOf(alice), _aliceShares);
+    assertEq(portfolio.convertToAssets(portfolio.balanceOf(alice)), 25e18 - 10);
+    assertEq(portfolio.totalAssets(), 85e18);
+    assertEq(testToken1.balanceOf(address(portfolio)), portfolio.totalAssets());
+    assertEq(portfolio.totalSupply(), _aliceShares + _bobShares); // 102M shares
+
+    // New assertions about Bob's position
+    assertEq(portfolio.balanceOf(bob), _bobShares);
+    assertEq(portfolio.convertToAssets(portfolio.balanceOf(bob)), 60e18 - 1); // off by 1 rounding error
+  
+    uint256 _aliceExpected = portfolio.totalAssets() * _aliceShares / portfolio.totalSupply() - 3;
+    uint256 _bobExpected = portfolio.totalAssets() * _bobShares / portfolio.totalSupply() - 7;
+
+    assertEq(portfolio.balanceOf(alice), _aliceShares);
+    assertEq(testToken1.balanceOf(address(portfolio)), portfolio.totalAssets());
+    assertEq(portfolio.convertToAssets(portfolio.balanceOf(alice)), 25e18 - 10);
+
+    vm.expectEmit(true, true, false, true);
+    emit Redeem(alice, alice, _aliceExpected, _aliceShares);
+    uint256 _aliceNet = redeem(alice, portfolio.balanceOf(alice));
+    vm.expectEmit(true, true, false, true);
+    emit Redeem(bob, bob, _bobExpected, _bobShares);
+    uint256 _bobNet = redeem(bob, portfolio.balanceOf(bob));
+
+    assertEq(_aliceNet, baseTokenOut);
+    assertEq(_bobNet, baseTokenOut);
+    assertEq(testToken1.balanceOf(address(portfolio)), 11); // 11 dust left in portfolio
+  }
+}

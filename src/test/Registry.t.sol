@@ -122,10 +122,12 @@ contract RegistrySetSwapWrapperStatus is RegistryTest {
 }
 
 contract RegistrySetPortfolioStatus is RegistryTest {
-    function testFuzz_SetPortfolioStatus(Portfolio _portfolio, bool _status) public {
+    address[] actors = [board, investmentCommittee];
+    function testFuzz_SetPortfolioStatus(Portfolio _portfolio, bool _status, uint _actor) public {
+        address actor = actors[_actor % actors.length];
         vm.expectEmit(true, true, false, false);
         emit PortfolioStatusSet(address(_portfolio), _status);
-        vm.prank(board);
+        vm.prank(actor);
         globalTestRegistry.setPortfolioStatus(_portfolio, _status);
         assertEq(globalTestRegistry.isActivePortfolio(_portfolio), _status);
     }

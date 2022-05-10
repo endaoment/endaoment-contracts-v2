@@ -108,8 +108,9 @@ contract SingleTokenPortfolio is Portfolio {
         _burn(msg.sender, _amountShares);
         uint256 _assetsOut = convertToAssets(_amountShares);
         totalAssets -= _assetsOut;
-        ERC20(asset).approve(address(_swapWrapper), _assetsOut);
-        uint256 _baseTokenOut = _swapWrapper.swap(asset, address(_baseToken), address(this), _assetsOut, _data[32:]);
+        ERC20(asset).safeApprove(address(_swapWrapper), 0);
+        ERC20(asset).safeApprove(address(_swapWrapper), _assetsOut);
+        uint256 _baseTokenOut = _swapWrapper.swap(asset, address(_baseToken), address(this), _assetsOut, _data[20:]);
         uint256 _fee;
         uint256 _netAmount;
         unchecked {

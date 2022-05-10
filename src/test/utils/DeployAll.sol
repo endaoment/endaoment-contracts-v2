@@ -22,7 +22,8 @@ contract DeployAll {
   address constant user1 = address(0xabc1);
   address constant user2 = address(0xabc2);
   address constant capitalCommittee = address(0xccc);
-  address constant programCommittee = address(0xbbbb);
+  address constant programCommittee = address(0xddd);
+  address constant investmentCommittee = address(0xeee);
   address constant tokenTrust = address(0x7ab1e);
 
   // used by RollingMerkleDistributor

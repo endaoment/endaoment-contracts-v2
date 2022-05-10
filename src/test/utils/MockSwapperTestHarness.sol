@@ -6,7 +6,6 @@ import { SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
 import { ISwapWrapper, ETHAmountInMismatch } from "../../interfaces/ISwapWrapper.sol";
 import { DSTestPlus } from "./DSTestPlus.sol";
 import { MockERC20 } from "solmate/test/utils/mocks/MockERC20.sol";
-import "forge-std/console2.sol";
 
 contract MockSwapperTestHarness is DeployTest {
     using SafeTransferLib for ERC20;
@@ -44,7 +43,7 @@ contract MockSwapWrapper is ISwapWrapper, DSTestPlus {
         if(_isOutputEth) {
             deal(_recipient, amountOut);
         } else {
-            deal(_tokenOut, _recipient, amountOut);
+            MockERC20(_tokenOut).mint(_recipient, amountOut);
         }
         return amountOut;
     }
