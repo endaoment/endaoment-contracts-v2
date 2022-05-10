@@ -26,6 +26,9 @@ contract OrgFundFactory is EntityFactory {
     /// @dev The concrete Fund used for minimal proxy deployment.
     Fund public immutable fundImplementation;
 
+    /// @notice Base Token address is the stable coin used throughout the system.
+    ERC20 public immutable baseToken;
+
     /**
      * @param _registry The Registry this factory will configure Entities to interact with. This factory must be
      * approved on this Registry for it to work properly.
@@ -35,6 +38,7 @@ contract OrgFundFactory is EntityFactory {
         orgImplementation.initialize(_registry, bytes32("IMPL")); // necessary?
         fundImplementation = new Fund();
         fundImplementation.initialize(_registry, address(0));
+        baseToken = _registry.baseToken();
     }
 
     /**
@@ -157,7 +161,7 @@ contract OrgFundFactory is EntityFactory {
     function _donate(Entity _entity, uint256 _amount) internal {
         // Send tokens directly to the entity, then reconcile its balance. Cheaper than doing a double transfer
         // and calling `donate`.
-        registry.baseToken().safeTransferFrom(msg.sender, address(_entity), _amount);
+        baseToken.safeTransferFrom(msg.sender, address(_entity), _amount);
         _entity.reconcileBalance();
     }
 

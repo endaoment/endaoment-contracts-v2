@@ -13,6 +13,8 @@ import { SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
 contract SingleTokenPortfolio is Portfolio {
     using SafeTransferLib for ERC20;
     using Math for uint256;
+
+    ERC20 public immutable baseToken;
     uint256 public exchangeRate;
     uint256 public override totalAssets;
 
@@ -34,6 +36,7 @@ contract SingleTokenPortfolio is Portfolio {
         uint256 _redemptionFee
     ) Portfolio(_registry, _asset, _shareTokenName, _shareTokenSymbol, _cap, _depositFee, _redemptionFee) {
         exchangeRate = Math.WAD;
+        baseToken = _registry.baseToken();
     }
 
     /**
@@ -81,18 +84,17 @@ contract SingleTokenPortfolio is Portfolio {
         ISwapWrapper _swapWrapper = ISwapWrapper(address(bytes20(_data[:20])));
         if (!registry.isSwapperSupported(_swapWrapper)) revert InvalidSwapper();
 
-        ERC20 _baseToken = registry.baseToken();
-        _baseToken.safeTransferFrom(msg.sender, address(this), _amountBaseToken);
+        baseToken.safeTransferFrom(msg.sender, address(this), _amountBaseToken);
         (uint256 _amountSwap, uint256 _amountFee) = _calculateFee(_amountBaseToken, depositFee);
-        _baseToken.approve(address(_swapWrapper), _amountBaseToken);
-        uint256 _assets = _swapWrapper.swap(address(_baseToken), asset, address(this), _amountSwap, _data[20:]);
+        baseToken.approve(address(_swapWrapper), _amountBaseToken);
+        uint256 _assets = _swapWrapper.swap(address(baseToken), asset, address(this), _amountSwap, _data[20:]);
         totalAssets += _assets;
         // Convert totalAssets to baseToken unit to measure against cap.
         if(totalAssets * _amountSwap / _assets > cap) revert ExceedsCap();
         uint256 _shares = convertToShares(_assets);
         if (_shares == 0) revert RoundsToZero();
         _mint(msg.sender, _shares);
-        _baseToken.transfer(registry.treasury(), _amountFee);
+        baseToken.transfer(registry.treasury(), _amountFee);
         emit Deposit(msg.sender, msg.sender, _assets, _shares);
         return _shares;
     }
@@ -104,8 +106,6 @@ contract SingleTokenPortfolio is Portfolio {
      * i.e. `bytes.concat(abi.encodePacked(address swapWrapper), SWAP_WRAPPER_BYTES)`.
      */ 
     function redeem(uint256 _amountShares, bytes calldata _data) external override returns (uint256) {
-        ERC20 _baseToken = registry.baseToken();
-
         ISwapWrapper _swapWrapper = ISwapWrapper(address(bytes20(_data[:20])));
         if (!registry.isSwapperSupported(_swapWrapper)) revert InvalidSwapper();
 
@@ -114,10 +114,10 @@ contract SingleTokenPortfolio is Portfolio {
         totalAssets -= _assetsOut;
         ERC20(asset).safeApprove(address(_swapWrapper), 0);
         ERC20(asset).safeApprove(address(_swapWrapper), _assetsOut);
-        uint256 _baseTokenOut = _swapWrapper.swap(asset, address(_baseToken), address(this), _assetsOut, _data[20:]);
+        uint256 _baseTokenOut = _swapWrapper.swap(asset, address(baseToken), address(this), _assetsOut, _data[20:]);
         (uint256 _netAmount, uint256 _fee) = _calculateFee(_baseTokenOut, redemptionFee);
-        _baseToken.safeTransfer(registry.treasury(), _fee);
-        _baseToken.safeTransfer(msg.sender, _netAmount);
+        baseToken.safeTransfer(registry.treasury(), _fee);
+        baseToken.safeTransfer(msg.sender, _netAmount);
         emit Redeem(msg.sender, msg.sender, _assetsOut, _amountShares);
         return _netAmount;
     }
