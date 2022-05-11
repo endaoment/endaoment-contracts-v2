@@ -12,10 +12,12 @@ contract NVTTest is NVTTypes, DeployTest {
     // Shadows EndaomentAuth
     error Unauthorized();
 
-    // Choose a value well above anything reasonable for bounding fuzzed vesting periods.
-    uint256 MAX_VESTING_PERIOD = 1000 * (365 days);
-    // The period * amount must fit into a uint256 to avoid fuzzing overflows. In reality this would never happen.
-    uint256 MAX_VESTING_AMOUNT = type(uint256).max / MAX_VESTING_PERIOD;
+    // uint140 is used in the struct for packing purposes.
+    uint256 MAX_DEPOSIT_AMOUNT = type(uint104).max;
+    uint256 MAX_VESTING_AMOUNT = type(uint96).max;
+
+    // Using 32 bits for the vesting period means we can't vest longer than ~84 years.
+    uint256 MAX_VESTING_PERIOD = 83 * (365 days);
 
     address[] public actors = [board, capitalCommittee];
 
@@ -107,7 +109,7 @@ contract NonTransferable is NVTTest {
             _holder != address(0) &&
             _receiver != address(0)
         );
-        _holdAmount = bound(_holdAmount, 0, type(uint224).max); // Enforced via ERC20Votes._maxSupply()
+        _holdAmount = bound(_holdAmount, 0, MAX_DEPOSIT_AMOUNT); // Enforced via ERC20Votes._maxSupply()
         _transferAmount = bound(_transferAmount, 0, _holdAmount);
 
         mintNdaoAndVoteLock(_holder, _holdAmount);
@@ -162,7 +164,7 @@ contract NonTransferable is NVTTest {
             _receiver != address(0) &&
             _spender != address(0)
         );
-        _holdAmount = bound(_holdAmount, 0, type(uint224).max);
+        _holdAmount = bound(_holdAmount, 0, MAX_DEPOSIT_AMOUNT);
         _transferAmount = bound(_transferAmount, 0, _holdAmount);
 
         mintNdaoAndVoteLock(_holder, _holdAmount);
@@ -177,7 +179,7 @@ contract NonTransferable is NVTTest {
 contract VoteLock is NVTTest {
 
     function testFuzz_NdaoHolderCanVoteLockNvt(address _holder, uint256 _amount) public {
-        _amount = bound(_amount, 0, type(uint224).max);
+        _amount = bound(_amount, 0, MAX_DEPOSIT_AMOUNT);
         mintNdaoAndApproveNvt(_holder, _amount);
 
         vm.prank(_holder);
@@ -188,7 +190,7 @@ contract VoteLock is NVTTest {
     }
 
     function testFuzz_EventEmittedOnVoteLock(address _holder, uint256 _amount) public {
-        _amount = bound(_amount, 0, type(uint224).max);
+        _amount = bound(_amount, 0, MAX_DEPOSIT_AMOUNT);
         mintNdaoAndApproveNvt(_holder, _amount);
 
         vm.prank(_holder);
@@ -197,8 +199,8 @@ contract VoteLock is NVTTest {
     }
 
     function testFuzz_NdaoHolderCanVoteLockNvtMultipleTimes(address _holder, uint256 _amount1, uint256 _amount2) public {
-        _amount1 = bound(_amount1, 0, type(uint112).max);
-        _amount2 = bound(_amount2, 0, type(uint112).max);
+        _amount1 = bound(_amount1, 0, MAX_DEPOSIT_AMOUNT);
+        _amount2 = bound(_amount2, 0, MAX_DEPOSIT_AMOUNT);
 
         mintNdaoAndApproveNvt(_holder, _amount1);
         vm.prank(_holder);
@@ -216,8 +218,8 @@ contract VoteLock is NVTTest {
     }
 
     function testFuzz_EventEmittedOnMultipleVoteLocks(address _holder, uint256 _amount1, uint256 _amount2) public {
-        _amount1 = bound(_amount1, 0, type(uint112).max);
-        _amount2 = bound(_amount2, 0, type(uint112).max);
+        _amount1 = bound(_amount1, 0, MAX_DEPOSIT_AMOUNT);
+        _amount2 = bound(_amount2, 0, MAX_DEPOSIT_AMOUNT);
 
         mintNdaoAndApproveNvt(_holder, _amount1);
         mintNdaoAndApproveNvt(_holder, _amount2);
@@ -233,7 +235,7 @@ contract VoteLock is NVTTest {
 
     function testFuzz_CannotVoteLockWithoutNdao(address _holder, uint256 _amount) public {
         vm.assume(_holder != address(0));
-        _amount = bound(_amount, 1, type(uint224).max);
+        _amount = bound(_amount, 1, MAX_DEPOSIT_AMOUNT);
 
         vm.prank(_holder);
         ndao.approve(address(nvt), type(uint256).max);
@@ -248,7 +250,7 @@ contract VoteLock is NVTTest {
 contract Deposits is NVTTest {
 
     function testFuzz_RecordsDepositOnVoteLock(address _holder, uint256 _amount) public {
-        _amount = bound(_amount, 0, type(uint224).max);
+        _amount = bound(_amount, 0, MAX_DEPOSIT_AMOUNT);
         assertEq(nvt.getNumDeposits(_holder), 0);
 
         mintNdaoAndVoteLock(_holder, _amount);
@@ -261,8 +263,8 @@ contract Deposits is NVTTest {
     }
 
     function testFuzz_MultipleDeposits(address _holder, uint256 _amount1, uint256 _amount2) public {
-        _amount1 = bound(_amount1, 0, type(uint112).max);
-        _amount2 = bound(_amount2, 0, type(uint112).max);
+        _amount1 = bound(_amount1, 0, MAX_DEPOSIT_AMOUNT);
+        _amount2 = bound(_amount2, 0, MAX_DEPOSIT_AMOUNT);
 
         mintNdaoAndVoteLock(_holder, _amount1);
         mintNdaoAndVoteLock(_holder, _amount2);
@@ -280,8 +282,8 @@ contract Deposits is NVTTest {
     }
 
     function testFuzz_MultipleDepositsOverTimeSpan(address _holder, uint256 _amount1, uint256 _amount2, uint256 _time) public {
-        _amount1 = bound(_amount1, 0, type(uint112).max);
-        _amount2 = bound(_amount2, 0, type(uint112).max);
+        _amount1 = bound(_amount1, 0, MAX_DEPOSIT_AMOUNT);
+        _amount2 = bound(_amount2, 0, MAX_DEPOSIT_AMOUNT);
         _time = bound(_time, 0, 1000 * (365 days));
 
         mintNdaoAndVoteLock(_holder, _amount1);
@@ -310,8 +312,8 @@ contract Deposits is NVTTest {
         uint256 _amount2
     ) public {
         vm.assume(_holder1 != _holder2);
-        _amount1 = bound(_amount1, 0, type(uint112).max);
-        _amount2 = bound(_amount2, 0, type(uint112).max);
+        _amount1 = bound(_amount1, 0, MAX_DEPOSIT_AMOUNT);
+        _amount2 = bound(_amount2, 0, MAX_DEPOSIT_AMOUNT);
 
         mintNdaoAndVoteLock(_holder1, _amount1);
         mintNdaoAndVoteLock(_holder2, _amount2);
@@ -329,7 +331,7 @@ contract Deposits is NVTTest {
     }
 
     function testFuzz_DepositThatIsPartiallyUnlocked(address _holder, uint256 _amount) public {
-        _amount = bound(_amount, 0, type(uint224).max);
+        _amount = bound(_amount, 0, MAX_DEPOSIT_AMOUNT);
         mintNdaoAndVoteLock(_holder, _amount);
 
         // move one third of a year into the future
@@ -353,7 +355,7 @@ contract Deposits is NVTTest {
     }
 
     function testFuzz_DepositThatIsFullyUnlocked(address _holder, uint256 _amount) public {
-        _amount = bound(_amount, 0, type(uint224).max);
+        _amount = bound(_amount, 0, MAX_DEPOSIT_AMOUNT);
         mintNdaoAndVoteLock(_holder, _amount);
 
         // Move one year into the future.
@@ -380,14 +382,14 @@ contract Deposits is NVTTest {
 contract WithdrawalAvailable is NVTTest {
 
     function testFuzz_ZeroAvailableImmediately(address _holder, uint256 _amount) public {
-        _amount = bound(_amount, 0, type(uint224).max);
+        _amount = bound(_amount, 0, MAX_DEPOSIT_AMOUNT);
         mintNdaoAndVoteLock(_holder, _amount);
 
         assertEq(nvt.availableForWithdrawal(_holder, 0, block.timestamp), 0);
     }
 
     function testFuzz_OneQuarterAvailableAfterQuarter(address _holder, uint256 _amount) public {
-        _amount = bound(_amount, 0, type(uint224).max);
+        _amount = bound(_amount, 0, MAX_DEPOSIT_AMOUNT);
         mintNdaoAndVoteLock(_holder, _amount);
         assertEq(nvt.availableForWithdrawal(_holder, 0, block.timestamp), 0);
 
@@ -397,7 +399,7 @@ contract WithdrawalAvailable is NVTTest {
     }
 
     function testFuzz_OneThirdAvailableAfterThirdOfYear(address _holder, uint256 _amount) public {
-        _amount = bound(_amount, 0, type(uint224).max);
+        _amount = bound(_amount, 0, MAX_DEPOSIT_AMOUNT);
         mintNdaoAndVoteLock(_holder, _amount);
         assertEq(nvt.availableForWithdrawal(_holder, 0, block.timestamp), 0);
 
@@ -407,7 +409,7 @@ contract WithdrawalAvailable is NVTTest {
     }
 
     function testFuzz_FiveSixthsAvailableAfterFiveSixthsOfYear(address _holder, uint256 _amount) public {
-        _amount = bound(_amount, 0, type(uint224).max);
+        _amount = bound(_amount, 0, MAX_DEPOSIT_AMOUNT);
         mintNdaoAndVoteLock(_holder, _amount);
         assertEq(nvt.availableForWithdrawal(_holder, 0, block.timestamp), 0);
 
@@ -417,8 +419,8 @@ contract WithdrawalAvailable is NVTTest {
     }
 
     function testFuzz_TwoSimultaneousDeposits(address _holder, uint256 _amount1, uint256 _amount2) public {
-        _amount1 = bound(_amount1, 0, type(uint112).max);
-        _amount2 = bound(_amount2, 0, type(uint112).max);
+        _amount1 = bound(_amount1, 0, MAX_DEPOSIT_AMOUNT);
+        _amount2 = bound(_amount2, 0, MAX_DEPOSIT_AMOUNT);
 
         mintNdaoAndVoteLock(_holder, _amount1);
         mintNdaoAndVoteLock(_holder, _amount2);
@@ -441,8 +443,8 @@ contract WithdrawalAvailable is NVTTest {
     }
 
     function testFuzz_TwoDepositsOverTimeSpan(address _holder, uint256 _amount1, uint256 _amount2) public {
-        _amount1 = bound(_amount1, 0, type(uint112).max);
-        _amount2 = bound(_amount2, 0, type(uint112).max);
+        _amount1 = bound(_amount1, 0, MAX_DEPOSIT_AMOUNT);
+        _amount2 = bound(_amount2, 0, MAX_DEPOSIT_AMOUNT);
 
         // mint, jump ahead a quarter, mint more
         mintNdaoAndVoteLock(_holder, _amount1);
@@ -466,8 +468,8 @@ contract WithdrawalAvailable is NVTTest {
         uint256 _amount2
     ) public {
         vm.assume(_holder1 != _holder2);
-        _amount1 = bound(_amount1, 0, type(uint112).max);
-        _amount2 = bound(_amount2, 0, type(uint112).max);
+        _amount1 = bound(_amount1, 0, MAX_DEPOSIT_AMOUNT);
+        _amount2 = bound(_amount2, 0, MAX_DEPOSIT_AMOUNT);
 
         mintNdaoAndVoteLock(_holder1, _amount1);
         mintNdaoAndVoteLock(_holder2, _amount2);
@@ -490,7 +492,7 @@ contract WithdrawalAvailable is NVTTest {
     }
 
     function testFuzz_AfterOneDepositThatHasBeenUnlocked(address _holder, uint256 _amount) public {
-        _amount = bound(_amount, 0, type(uint224).max);
+        _amount = bound(_amount, 0, MAX_DEPOSIT_AMOUNT);
         mintNdaoAndVoteLock(_holder, _amount);
 
         // None is available immediately
@@ -519,7 +521,7 @@ contract WithdrawalAvailable is NVTTest {
     }
 
     function testFuzz_OneDepositAfterArbitraryTime(address _holder, uint256 _amount, uint256 _time) public {
-        _amount = bound(_amount, 0, type(uint224).max);
+        _amount = bound(_amount, 0, MAX_DEPOSIT_AMOUNT);
         _time = bound(_time, 0, 365 days);
 
         mintNdaoAndVoteLock(_holder, _amount);
@@ -530,7 +532,7 @@ contract WithdrawalAvailable is NVTTest {
     }
 
     function testFuzz_OneDepositAfterArbitraryTimeOver1Year(address _holder, uint256 _amount, uint256 _time) public {
-        _amount = bound(_amount, 0, type(uint224).max);
+        _amount = bound(_amount, 0, MAX_DEPOSIT_AMOUNT);
         _time = bound(_time, 365 days, 1000 * (365 days));
 
         mintNdaoAndVoteLock(_holder, _amount);
@@ -545,7 +547,7 @@ contract Unlock is NVTTest {
     UnlockRequest[] testRequests;
 
     function testFuzz_UnlockAllAfterYear(address _holder, uint256 _amount) public {
-        _amount = bound(_amount, 0, type(uint224).max);
+        _amount = bound(_amount, 0, MAX_DEPOSIT_AMOUNT);
         mintNdaoAndVoteLock(_holder, _amount);
 
         skip(365 days);
@@ -563,7 +565,7 @@ contract Unlock is NVTTest {
     }
 
     function testFuzz_UnlockEmitsEvent(address _holder, uint256 _lockAmount, uint256 _unlockAmount) public {
-        _lockAmount = bound(_lockAmount, 0, type(uint224).max);
+        _lockAmount = bound(_lockAmount, 0, MAX_DEPOSIT_AMOUNT);
         _unlockAmount = bound(_unlockAmount, 0, _lockAmount);
         mintNdaoAndVoteLock(_holder, _lockAmount);
 
@@ -580,7 +582,7 @@ contract Unlock is NVTTest {
     }
 
     function testFuzz_UnlockOneQuarterAfterQuarter(address _holder, uint256 _amount) public {
-        _amount = bound(_amount, 0, type(uint224).max);
+        _amount = bound(_amount, 0, MAX_DEPOSIT_AMOUNT);
         mintNdaoAndVoteLock(_holder, _amount);
 
         skip((365 days) / 4);
@@ -598,7 +600,7 @@ contract Unlock is NVTTest {
     }
 
     function testFuzz_UnlockOneEighthAfterQuarter(address _holder, uint256 _amount) public {
-        _amount = bound(_amount, 0, type(uint224).max);
+        _amount = bound(_amount, 0, MAX_DEPOSIT_AMOUNT);
         mintNdaoAndVoteLock(_holder, _amount);
 
         skip((365 days) / 4);
@@ -616,7 +618,7 @@ contract Unlock is NVTTest {
     }
 
     function testFuzz_UnlockQuarterInTwoRequests(address _holder, uint256 _amount) public {
-        _amount = bound(_amount, 0, type(uint224).max);
+        _amount = bound(_amount, 0, MAX_DEPOSIT_AMOUNT);
         mintNdaoAndVoteLock(_holder, _amount);
 
         skip((365 days) / 4);
@@ -643,7 +645,7 @@ contract Unlock is NVTTest {
     }
 
     function testFuzz_UnlockOverTwoTimeSpans(address _holder, uint256 _amount) public {
-        _amount = bound(_amount, 0, type(uint224).max);
+        _amount = bound(_amount, 0, MAX_DEPOSIT_AMOUNT);
         mintNdaoAndVoteLock(_holder, _amount);
 
         skip((365 days) / 4);
@@ -672,8 +674,8 @@ contract Unlock is NVTTest {
     }
 
     function testFuzz_UnlockTwoDeposits(address _holder, uint256 _amount1, uint256 _amount2) public {
-        _amount1 = bound(_amount1, 0, type(uint112).max);
-        _amount2 = bound(_amount2, 0, type(uint112).max);
+        _amount1 = bound(_amount1, 0, MAX_DEPOSIT_AMOUNT);
+        _amount2 = bound(_amount2, 0, MAX_DEPOSIT_AMOUNT);
 
         mintNdaoAndVoteLock(_holder, _amount1);
         skip((365 days) / 4);
@@ -707,11 +709,11 @@ contract Unlock is NVTTest {
         uint256 _lockAmount2,
         uint256 _unlockAmount2
     ) public {
-        _lockAmount1 = bound(_lockAmount1, 0, type(uint112).max);
+        _lockAmount1 = bound(_lockAmount1, 0, MAX_DEPOSIT_AMOUNT);
         _unlockAmount1 = bound(_unlockAmount1, 0, _lockAmount1);
         mintNdaoAndVoteLock(_holder, _lockAmount1);
 
-        _lockAmount2 = bound(_lockAmount2, 0, type(uint112).max);
+        _lockAmount2 = bound(_lockAmount2, 0, MAX_DEPOSIT_AMOUNT);
         _unlockAmount2 = bound(_unlockAmount2, 0, _lockAmount2);
         mintNdaoAndVoteLock(_holder, _lockAmount2);
 
@@ -734,8 +736,8 @@ contract Unlock is NVTTest {
     }
 
     function testFuzz_UnlockTwoDepositsOverTwoTimeSpans(address _holder, uint256 _amount1, uint256 _amount2) public {
-        _amount1 = bound(_amount1, 0, type(uint112).max);
-        _amount2 = bound(_amount2, 0, type(uint112).max);
+        _amount1 = bound(_amount1, 0, MAX_DEPOSIT_AMOUNT);
+        _amount2 = bound(_amount2, 0, MAX_DEPOSIT_AMOUNT);
 
         // make a deposit and go ahead a quarter
         mintNdaoAndVoteLock(_holder, _amount1);
@@ -784,7 +786,7 @@ contract Unlock is NVTTest {
     }
 
     function testFuzz_CannotUnlockMoreThanAvailable(address _holder, uint256 _amount) public {
-        _amount = bound(_amount, 0, type(uint224).max);
+        _amount = bound(_amount, 0, MAX_DEPOSIT_AMOUNT);
         mintNdaoAndVoteLock(_holder, _amount);
 
         skip((365 days) / 4);
@@ -802,7 +804,7 @@ contract Unlock is NVTTest {
     }
 
     function testFuzz_CannotUnlockMoreThanAvailableInMultipleRequests(address _holder, uint256 _amount) public {
-        _amount = bound(_amount, 0, type(uint224).max);
+        _amount = bound(_amount, 0, MAX_DEPOSIT_AMOUNT);
         mintNdaoAndVoteLock(_holder, _amount);
 
         skip((365 days) / 4);
@@ -829,8 +831,8 @@ contract Unlock is NVTTest {
     }
 
     function testFuzz_CannotUnlockMoreThanTwoDepositsOverTwoTimeSpans(address _holder, uint256 _amount1, uint256 _amount2) public {
-        _amount1 = bound(_amount1, 0, type(uint112).max);
-        _amount2 = bound(_amount2, 0, type(uint112).max);
+        _amount1 = bound(_amount1, 0, MAX_DEPOSIT_AMOUNT);
+        _amount2 = bound(_amount2, 0, MAX_DEPOSIT_AMOUNT);
 
         // make a deposit and go ahead a quarter
         mintNdaoAndVoteLock(_holder, _amount1);
@@ -889,7 +891,7 @@ contract OffChainHelpers is NVTTest {
     }
 
     function testFuzz_ImmediatelyAfterOneDeposit(address _holder, uint256 _amount) public {
-        _amount = bound(_amount, 1, type(uint224).max);
+        _amount = bound(_amount, 1, MAX_DEPOSIT_AMOUNT);
         mintNdaoAndVoteLock(_holder, _amount);
 
         uint256[] memory activeIndices = nvt.getActiveDepositIndices(_holder, 0);
@@ -901,7 +903,7 @@ contract OffChainHelpers is NVTTest {
     }
 
     function testFuzz_AfterOneDepositTimeElapsed(address _holder, uint256 _amount) public {
-        _amount = bound(_amount, 1, type(uint224).max);
+        _amount = bound(_amount, 1, MAX_DEPOSIT_AMOUNT);
         mintNdaoAndVoteLock(_holder, _amount);
 
         uint256 timestamp = block.timestamp + (365 days) / 4;
@@ -914,8 +916,8 @@ contract OffChainHelpers is NVTTest {
     }
 
     function testFuzz_ImmediatelyAfterTwoDeposits(address _holder, uint256 _amount1, uint256 _amount2) public {
-        _amount1 = bound(_amount1, 1, type(uint112).max);
-        _amount2 = bound(_amount2, 1, type(uint112).max);
+        _amount1 = bound(_amount1, 1, MAX_DEPOSIT_AMOUNT);
+        _amount2 = bound(_amount2, 1, MAX_DEPOSIT_AMOUNT);
 
         mintNdaoAndVoteLock(_holder, _amount1);
         mintNdaoAndVoteLock(_holder, _amount2);
@@ -930,8 +932,8 @@ contract OffChainHelpers is NVTTest {
     }
 
     function testFuzz_AfterTwoSimultaneousDepositsTimeElapsed(address _holder, uint256 _amount1, uint256 _amount2) public {
-        _amount1 = bound(_amount1, 1, type(uint112).max);
-        _amount2 = bound(_amount2, 1, type(uint112).max);
+        _amount1 = bound(_amount1, 1, MAX_DEPOSIT_AMOUNT);
+        _amount2 = bound(_amount2, 1, MAX_DEPOSIT_AMOUNT);
 
         mintNdaoAndVoteLock(_holder, _amount1);
         mintNdaoAndVoteLock(_holder, _amount2);
@@ -947,8 +949,8 @@ contract OffChainHelpers is NVTTest {
     }
 
     function testFuzz_AfterTwoDepositsAcrossTimeSpans(address _holder, uint256 _amount1, uint256 _amount2) public {
-        _amount1 = bound(_amount1, 1, type(uint112).max);
-        _amount2 = bound(_amount2, 1, type(uint112).max);
+        _amount1 = bound(_amount1, 1, MAX_DEPOSIT_AMOUNT);
+        _amount2 = bound(_amount2, 1, MAX_DEPOSIT_AMOUNT);
 
         // vote lock some ndao
         mintNdaoAndVoteLock(_holder, _amount1);
@@ -969,7 +971,7 @@ contract OffChainHelpers is NVTTest {
     }
 
     function testFuzz_AfterOneDepositThatHasBeenUnlocked(address _holder, uint256 _amount) public {
-        _amount = bound(_amount, 0, type(uint224).max);
+        _amount = bound(_amount, 0, MAX_DEPOSIT_AMOUNT);
         mintNdaoAndVoteLock(_holder, _amount);
 
         skip(365 days);
@@ -990,8 +992,8 @@ contract OffChainHelpers is NVTTest {
     }
 
     function testFuzz_AfterTwoSimultaneousDepositsWhenOneHasBeenUnlocked(address _holder, uint256 _amount1, uint256 _amount2) public {
-        _amount1 = bound(_amount1, 1, type(uint112).max);
-        _amount2 = bound(_amount2, 1, type(uint112).max);
+        _amount1 = bound(_amount1, 1, MAX_DEPOSIT_AMOUNT);
+        _amount2 = bound(_amount2, 1, MAX_DEPOSIT_AMOUNT);
 
         mintNdaoAndVoteLock(_holder, _amount1);
         mintNdaoAndVoteLock(_holder, _amount2);
@@ -1015,8 +1017,8 @@ contract OffChainHelpers is NVTTest {
     }
 
     function testFuzz_AfterTwoSimultaneousDepositsWhenOneHasBeenPartiallyUnlocked(address _holder, uint256 _amount1, uint256 _amount2) public {
-        _amount1 = bound(_amount1, 1, type(uint112).max);
-        _amount2 = bound(_amount2, 1, type(uint112).max);
+        _amount1 = bound(_amount1, 1, MAX_DEPOSIT_AMOUNT);
+        _amount2 = bound(_amount2, 1, MAX_DEPOSIT_AMOUNT);
 
         mintNdaoAndVoteLock(_holder, _amount1);
         mintNdaoAndVoteLock(_holder, _amount2);

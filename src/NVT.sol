@@ -24,9 +24,11 @@ abstract contract NVTTypes {
 
     /// @notice Data associated with an NDAO deposit that has been vote locked for NVT.
     struct Deposit {
-        uint256 date; // Unix timestamp of when the deposit was made.
-        uint256 amount; // The amount of NDAO initially deposited.
-        uint256 balance; // The balance of NDAO that has not yet been unlocked by the user.
+        uint40 date; // Unix timestamp of when the deposit was made. Overflows in the year 36,835.
+
+        // Each param can account for >20 trillion tokens before overflowing.
+        uint104 amount; // The amount of NDAO initially deposited.
+        uint104 balance; // The balance of NDAO that has not yet been unlocked by the user.
     }
 
     /// @notice Data associated with a request to unlock NVT and reclaim NDAO.
@@ -37,15 +39,23 @@ abstract contract NVTTypes {
 
     /// @notice Data associated with an accounts vesting token distribution.
     struct VestingSchedule {
-        uint256 startDate; // Unix timestamp of when the vesting started.
-        uint256 vestDate; // Unix timestamp of when fully vested.
-        uint256 amount; // Amount of tokens originally locked for vesting.
-        uint256 balance; // The balance of tokens (vested & unvested) that have not yet been claimed by the vestee.
+        // Overflows in the year 2106, which means no vesting schedule can be created which with a vest date beyond
+        // that point. This is acceptable, and allows packing the first 4 params in 1 slot.
+        uint32 startDate; // Unix timestamp of when the vesting started.
+        uint32 vestDate; // Unix timestamp of when fully vested.
+
+        // Each param can account for ~79 billion tokens before overflowing.
+        uint96 amount; // Amount of tokens originally locked for vesting.
+        uint96 balance; // The balance of tokens (vested & unvested) that have not yet been claimed by the vestee.
+
         bool wasClawedBack; // Flag denoting if this vesting distribution was clawed back.
     }
 
     /// @notice Thrown when a caller attempts a transfer related ERC20 method.
     error TransferDisallowed();
+
+    /// @notice Thrown when a caller provides an amount that would overflow the type.
+    error InvalidAmount();
 
     /// @notice Thrown when an unlock request cannot be processed.
     error InvalidUnlockRequest();
@@ -236,11 +246,14 @@ contract NVT is NVTTypes, ERC20Votes, EndaomentAuth {
      * for unlock linearly over the course of the next year.
      */
     function voteLock(uint256 _amount) external {
+        // Check to prevent overflow in cast below, which could cause wrong amount of tokens to be locked for a year.
+        if (_amount > type(uint104).max) revert InvalidAmount();
+
         deposits[msg.sender].push(
             Deposit({
-                date: block.timestamp,
-                amount: _amount,
-                balance: _amount
+                date: uint40(block.timestamp),
+                amount: uint104(_amount),
+                balance: uint104(_amount)
             })
         );
 
@@ -272,14 +285,15 @@ contract NVT is NVTTypes, ERC20Votes, EndaomentAuth {
      */
     function vestLock(address _vestee, uint256 _amount, uint256 _period) public requiresAuth {
         if (_period == 0) revert InvalidVestingPeriod();
+        if (_amount > type(uint96).max) revert InvalidAmount();
         if (vestingSchedules[_vestee].vestDate != 0) revert AccountAlreadyVesting();
 
         _mint(_vestee, _amount);
         vestingSchedules[_vestee] = VestingSchedule({
-            startDate: block.timestamp,
-            vestDate: block.timestamp + _period,
-            amount: _amount,
-            balance: _amount,
+            startDate: uint32(block.timestamp),
+            vestDate: uint32(block.timestamp) + uint32(_period), // Overflow check bounds period.
+            amount: uint96(_amount),
+            balance: uint96(_amount),
             wasClawedBack: false
         });
         ndao.transferFrom(msg.sender, address(this), _amount);
@@ -298,8 +312,9 @@ contract NVT is NVTTypes, ERC20Votes, EndaomentAuth {
         _burn(msg.sender, _amount);
         unchecked {
             // The _available is less than or equal to balance, and _available is checked to be less than
-            // _amount above, thus subtracting _amount from balance cannot overflow.
-            vestingSchedules[msg.sender].balance -= _amount;
+            // _amount above, thus subtracting _amount from balance cannot overflow. The available check
+            // also ensure casting is safe.
+            vestingSchedules[msg.sender].balance -= uint96(_amount);
         }
         ndao.transfer(msg.sender, _amount);
 
@@ -318,7 +333,7 @@ contract NVT is NVTTypes, ERC20Votes, EndaomentAuth {
         unchecked {
             // Implied invariant: the vestee has not already withdrawn more than they have vested.
             _unvestedBalance = vestingSchedules[_vestee].balance - _vestedBalance;
-            vestingSchedules[_vestee].balance -= _unvestedBalance;
+            vestingSchedules[_vestee].balance -= uint96(_unvestedBalance);
         }
 
         vestingSchedules[_vestee].wasClawedBack = true;
@@ -335,7 +350,8 @@ contract NVT is NVTTypes, ERC20Votes, EndaomentAuth {
         uint256 _available = availableForWithdrawal(msg.sender, _request.index, block.timestamp);
         if (_request.amount > _available) revert InvalidUnlockRequest();
 
-        deposits[msg.sender][_request.index].balance -= _request.amount;
+        // The "available" check above should ensure casting here is safe.
+        deposits[msg.sender][_request.index].balance -= uint104(_request.amount);
 
         _burn(msg.sender, _request.amount);
         ndao.transfer(msg.sender, _request.amount);
