@@ -84,8 +84,6 @@ contract DeployTest is DeployAll, DSTestPlus {
 
     globalTestRegistry.setFactoryApproval(address(orgFundFactory), true);
 
-    // TODO: Give board & capital committee mint capability (Use functional requirements doc)
-
     // role 1: P_01	Payout capability from entities
     globalTestRegistry.setRoleCapability(1, orgTarget, payout, true);
     globalTestRegistry.setRoleCapability(1, fundTarget, payout, true);
