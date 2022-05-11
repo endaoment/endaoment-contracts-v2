@@ -271,7 +271,10 @@ abstract contract Entity is EndaomentAuth {
      */
      function receiveTransfer(uint256 _transferAmount) public {
          if (!registry.isActiveEntity(Entity(msg.sender))) revert InvalidTransferAttempt();
-         balance += _transferAmount;
+         unchecked {
+             // Cannot overflow with realistic balances.
+             balance += _transferAmount;
+         }
      }
 
      /**
@@ -318,7 +321,7 @@ abstract contract Entity is EndaomentAuth {
      * Entity:callAsEntity is used to transfer baseToken. In this case, this method provides a way of correcting the Entity's internal balance.
      */
     function reconcileBalance() external {
-        uint256 _tokenBalance = registry.baseToken().balanceOf(address(this));
+        uint256 _tokenBalance = baseToken.balanceOf(address(this));
 
         if (_tokenBalance >= balance) {
             uint256 _sweepAmount = _tokenBalance - balance;
