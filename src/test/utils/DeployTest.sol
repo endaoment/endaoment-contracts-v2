@@ -65,12 +65,16 @@ contract DeployTest is DeployAll, DSTestPlus {
   address public uniV3SwapRouter = 0xE592427A0AEce92De3Edee1F18E0157C05861564;
   ISwapWrapper uniV3SwapWrapper;
 
+  // Curve swap wrapper
+  address public curveExchange = 0x81C46fECa27B31F3ADC2b91eE4be9717d1cd3DD7;
+  ISwapWrapper curveSwapWrapper;
+
   function setUp() public virtual override {
     super.setUp();
 
     vm.label(board, "board");
     vm.label(user1, "user1");
-    vm.label(user2, "user1");
+    vm.label(user2, "user2");
     vm.label(treasury, "treasury");
     vm.label(capitalCommittee, "capital committee");
     vm.label(tokenTrust, "token trust");

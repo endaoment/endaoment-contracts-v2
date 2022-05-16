@@ -63,7 +63,7 @@ abstract contract UniV3WrapperTest is DeployTest {
             deal(_tokenIn, sender, _amountIn);
             // To make sure this wrapper works even if an approval has been preset, prank a pre-existing approval
             vm.prank(address(uniV3SwapWrapper));
-            ERC20(_tokenIn).safeApprove(address(uniV3SwapRouter), 1e27);
+            ERC20(_tokenIn).safeApprove(address(uniV3SwapRouter), 1e2);
             // deadline, amountOutMinimum, path
             bytes memory _data = bytes.concat(
               abi.encode(uint256(1649787227), uint256(0)),
