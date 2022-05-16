@@ -50,8 +50,11 @@ abstract contract UniV3WrapperTest is DeployTest {
         uint256 _amountOut;
         if(_tokenIn == eth) {
             deal(sender, _amountIn);
-            // fee, deadline, amountOutMinimum, sqrtPriceLimitX96
-            bytes memory _data = abi.encode(uint24(fee), uint256(1649787227), uint256(0), uint160(0));
+            // deadline, amountOutMinimum, path
+            bytes memory _data = bytes.concat(
+              abi.encode(uint256(1649787227), uint256(0)),
+              bytes.concat(bytes20(weth), abi.encodePacked(fee), bytes20(_tokenOut))
+            );
             vm.expectEmit(true, true, true, true);
             emit WrapperSwapExecuted(_tokenIn, _tokenOut, sender, receiver, _amountIn, _amountOutExpected);
             vm.prank(sender);
@@ -61,9 +64,11 @@ abstract contract UniV3WrapperTest is DeployTest {
             // To make sure this wrapper works even if an approval has been preset, prank a pre-existing approval
             vm.prank(address(uniV3SwapWrapper));
             ERC20(_tokenIn).safeApprove(address(uniV3SwapRouter), 1e27);
-
-            // fee, deadline, amountOutMinimum, sqrtPriceLimitX96
-            bytes memory _data = abi.encode(uint24(fee), uint256(1649787227), uint256(0), uint160(0));
+            // deadline, amountOutMinimum, path
+            bytes memory _data = bytes.concat(
+              abi.encode(uint256(1649787227), uint256(0)),
+              bytes.concat(bytes20(_tokenIn), abi.encodePacked(fee), bytes20(_tokenOut == eth ? weth : _tokenOut))
+            );
             vm.expectEmit(true, true, true, true);
             emit WrapperSwapExecuted(_tokenIn, _tokenOut, sender, receiver, _amountIn, _amountOutExpected);
 
@@ -147,4 +152,40 @@ contract UsdcWethSwapTest is UniV3WrapperTest {
     amountOutExpectedA = 31664705400085;
     amountOutExpectedB = 39196884382268151608637;
   }
+}
+
+contract LinkWethUsdcSwapTest is DeployTest {
+    address link = 0x514910771AF9Ca656af840dff83E8264EcF986CA;
+    address weth = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
+    address usdc = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
+    address sender = user1;
+    address receiver = user2;
+    uint256 amountOutExpected = 167160445293;
+
+    event WrapperSwapExecuted(address indexed tokenIn, address indexed tokenOut, address sender, address indexed recipient, uint256 amountIn, uint256 amountOut);
+    
+    function setUp() public override {
+      super.setUp();
+      vm.startPrank(board);
+      uniV3SwapWrapper = new UniV3Wrapper("UniV3 SwapRouter", uniV3SwapRouter);
+      globalTestRegistry.setSwapWrapperStatus(ISwapWrapper(uniV3SwapWrapper), true);
+      vm.stopPrank();
+    }
+    
+    function test_swap_multihop() public {
+        uint256 _amount = 1e22;
+        deal(link, sender, _amount);
+        vm.prank(sender);
+        ERC20(link).approve(address(uniV3SwapWrapper), _amount);
+        bytes memory _data = bytes.concat(
+              abi.encode(uint256(1649787227), uint256(0)),
+              bytes.concat(bytes20(link), abi.encodePacked(uint24(3000)), bytes20(weth), abi.encodePacked(uint24(500)), bytes20(usdc))
+            );
+        vm.expectEmit(true, true, true, true);
+        emit WrapperSwapExecuted(link, usdc, sender, receiver, _amount, amountOutExpected);
+        vm.prank(sender);
+        uint256 _amountOut = uniV3SwapWrapper.swap{value:0}(link, usdc, receiver, _amount, _data);
+        assertEq(_amountOut, amountOutExpected);
+        assertEq(ERC20(usdc).balanceOf(receiver), _amountOut);
+    }
 }

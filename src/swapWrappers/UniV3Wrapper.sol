@@ -22,6 +22,8 @@ contract UniV3Wrapper is ISwapWrapper {
     /// @dev Address we use to represent ETH.
     address constant internal eth = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
+    error PathMismatch();
+
     /**
      * @param _name SwapWrapper name.
      * @param _uniV3SwapRouter Deployed Uniswap v3 SwapRouter.
@@ -38,8 +40,11 @@ contract UniV3Wrapper is ISwapWrapper {
      * @param _tokenOut Token out (or for ETH, 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE).
      * @param _recipient Recipient of the swap output.
      * @param _amount Amount of `_tokenIn`.
-     * @param _data Abi encoded `fee`, `deadline`, `amountOutMinimum`, `sqrtPriceLimitX96`.
-        e.g. `bytes memory _data = abi.encode(uint24(3000), uint256(1649787227), uint256(0), uint160(0));`
+     * @param _data Abi encoded `deadline`, `amountOutMinimum`, and `path` (https://docs.uniswap.org/protocol/guides/swaps/multihop-swaps#input-parameters).
+        e.g. `bytes memory _data = bytes.concat(
+              abi.encode(uint256(1649787227), uint256(0)),
+              bytes.concat(address(weth), abi.encodePacked(uint24(fee)), address(_tokenOut))
+            );`
      * @dev In the case of an ERC20 swap, this contract first possesses the `_amount` via `transferFrom`
      * and therefore preconditionally requires an ERC20 approval from the caller.
      */
@@ -58,34 +63,27 @@ contract UniV3Wrapper is ISwapWrapper {
             ERC20(_tokenIn).safeApprove(address(swapRouter), _amount);
         }
 
-        // If swapping from ETH, specify WETH as the swap input token. However, we preserve _tokenIn as the ETH
-        // address so it can be differentiated in logs.
-        address _swapTokenIn = _tokenIn == eth ? address(weth) : _tokenIn;
-
-        // If swapping into ETH, specify WETH as the swap output token. We similarly preserve _tokenOut as the ETH
-        // address so it can be differentiated in logs.
-        address _swaptokenOut = _tokenOut == eth ? address(weth) : _tokenOut;
-
         // If swapping to ETH, first swap WETH to this contract (will then be unwrapped and forwarded to recipient).
         address _swapRecipient = _tokenOut == eth ? address(this) : _recipient;
 
         // Prepare the swap.
         uint256 _amountOut;
         {
-            (uint24 _fee, uint256 _deadline, uint256 _amountOutMinimum, uint160 _sqrtPriceLimitX96) = abi.decode(_data, (uint24, uint256, uint256, uint160)); 
-            ISwapRouter.ExactInputSingleParams memory params = ISwapRouter.ExactInputSingleParams({
-                tokenIn: _swapTokenIn,
-                tokenOut: _swaptokenOut,
-                fee: _fee,
+            (uint256 _deadline, uint256 _amountOutMinimum) = abi.decode(_data[:64], (uint256, uint256)); // 64 bytes, 128 nibbles
+            bytes memory _path = _data[64:];
+            (address _pathStart, address _pathEnd) = _decodePathTokens(_data[64:]);
+            _assertMatchingTokenPathPair(_tokenIn, _pathStart);
+            _assertMatchingTokenPathPair(_tokenOut, _pathEnd);
+            ISwapRouter.ExactInputParams memory params = ISwapRouter.ExactInputParams({
+                path: _path,
                 recipient: _swapRecipient,
                 deadline: _deadline,
                 amountIn: _amount,
-                amountOutMinimum: _amountOutMinimum,
-                sqrtPriceLimitX96: _sqrtPriceLimitX96
+                amountOutMinimum: _amountOutMinimum
             });
 
             // Execute the swap
-            _amountOut = swapRouter.exactInputSingle{value:msg.value}(params);
+            _amountOut = swapRouter.exactInput{value:msg.value}(params);
         }
         // Unwrap WETH for ETH if required.
         if (_tokenOut == eth) {
@@ -94,6 +92,16 @@ contract UniV3Wrapper is ISwapWrapper {
         }
         emit WrapperSwapExecuted(_tokenIn, _tokenOut, msg.sender, _recipient, _amount, _amountOut);
         return _amountOut;
+    }
+
+    /// @dev The first 20 bytes is the address at the start of the path, and the last 20 bytes are the address of the path's end.
+    function _decodePathTokens(bytes calldata _path) internal pure returns (address, address) {
+        return (address(bytes20(_path[:20])), address(bytes20(_path[_path.length - 20:])));
+    }
+
+    /// @dev This method is used to safety check that the provided swap path is swapping the intended tokens.
+    function _assertMatchingTokenPathPair(address _token, address _path) internal view {
+        if(!(_path == _token || (_path == address(weth) && _token == eth))) revert PathMismatch();
     }
 
     /// @notice Required to receive ETH on `weth.withdraw()`
