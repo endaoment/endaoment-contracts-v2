@@ -15,8 +15,6 @@ contract SingleTokenPortfolio is Portfolio {
     using Math for uint256;
 
     ERC20 public immutable baseToken;
-    uint256 public exchangeRate;
-    uint256 public override totalAssets;
 
     /**
      * @param _registry Endaoment registry.
@@ -35,7 +33,6 @@ contract SingleTokenPortfolio is Portfolio {
         uint256 _depositFee,
         uint256 _redemptionFee
     ) Portfolio(_registry, _asset, _shareTokenName, _shareTokenSymbol, _cap, _depositFee, _redemptionFee) {
-        exchangeRate = Math.WAD;
         baseToken = _registry.baseToken();
     }
 
@@ -45,20 +42,32 @@ contract SingleTokenPortfolio is Portfolio {
      * @param _amountAssets Amount of assets to take.
      */
     function takeFees(uint256 _amountAssets) external override requiresAuth {
-        totalAssets -= _amountAssets;
-        exchangeRate = Math.WAD * totalAssets / totalSupply;
         ERC20(asset).safeTransfer(registry.treasury(), _amountAssets);
         emit FeesTaken(_amountAssets);
     }
 
+    function totalAssets() public view override returns (uint256) {
+        return ERC20(asset).balanceOf(address(this));
+    }
+
     /**
      * @inheritdoc Portfolio
-     * @dev Rounding down in both of these favors the portfolio, so the user gets slightly less and the portfolio gets slightly more,
-     * that way it prevents a situation where the user is owed x but the vault only has x - epsilon, where epsilon is some tiny number
-     * due to rounding error.
-     */ 
-    function convertToShares(uint256 _amount) public view override returns (uint256) {
-        return _amount.divWadDown(exchangeRate);
+     * @dev Rounding down favors the portfolio, so the user gets slightly less and the portfolio gets slightly more, that way it prevents
+     * a situation where the user is owed x but the vault only has x - epsilon, where epsilon is some tiny number due to rounding error.
+     */
+    function convertToShares(uint256 _assets) public view override returns (uint256) {
+        uint256 _supply = totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
+        return _supply == 0 ? _assets : _assets.mulDivDown(_supply, totalAssets());
+    }
+
+    /**
+     * @notice This method is needed on deposit because we already possess the assets that we want to convert.
+     * @dev Rounding down favors the portfolio, so the user gets slightly less and the portfolio gets slightly more, that way it prevents
+     * a situation where the user is owed x but the vault only has x - epsilon, where epsilon is some tiny number due to rounding error.
+     */
+    function _convertToSharesLessAssets(uint256 _assets) internal view returns (uint256) {
+        uint256 _supply = totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
+        return _supply == 0 ? _assets : _assets.mulDivDown(totalSupply, totalAssets() - _assets);
     }
 
     /**
@@ -66,9 +75,10 @@ contract SingleTokenPortfolio is Portfolio {
      * @dev Rounding down in both of these favors the portfolio, so the user gets slightly less and the portfolio gets slightly more,
      * that way it prevents a situation where the user is owed x but the vault only has x - epsilon, where epsilon is some tiny number
      * due to rounding error.
-     */ 
-    function convertToAssets(uint256 _amount) public view override returns (uint256) {
-        return _amount.mulWadDown(exchangeRate);
+     */
+    function convertToAssets(uint256 _shares) public view override returns (uint256) {
+        uint256 _supply = totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
+        return _supply == 0 ? _shares : _shares.mulDivDown(totalAssets(), _supply);
     }
 
     /**
@@ -88,10 +98,9 @@ contract SingleTokenPortfolio is Portfolio {
         (uint256 _amountSwap, uint256 _amountFee) = _calculateFee(_amountBaseToken, depositFee);
         baseToken.approve(address(_swapWrapper), _amountBaseToken);
         uint256 _assets = _swapWrapper.swap(address(baseToken), asset, address(this), _amountSwap, _data[20:]);
-        totalAssets += _assets;
         // Convert totalAssets to baseToken unit to measure against cap.
-        if(totalAssets * _amountSwap / _assets > cap) revert ExceedsCap();
-        uint256 _shares = convertToShares(_assets);
+        if(totalAssets() * _amountSwap / _assets > cap) revert ExceedsCap();
+        uint256 _shares = _convertToSharesLessAssets(_assets);
         if (_shares == 0) revert RoundsToZero();
         _mint(msg.sender, _shares);
         baseToken.transfer(registry.treasury(), _amountFee);
@@ -109,9 +118,8 @@ contract SingleTokenPortfolio is Portfolio {
         ISwapWrapper _swapWrapper = ISwapWrapper(address(bytes20(_data[:20])));
         if (!registry.isSwapperSupported(_swapWrapper)) revert InvalidSwapper();
 
-        _burn(msg.sender, _amountShares);
         uint256 _assetsOut = convertToAssets(_amountShares);
-        totalAssets -= _assetsOut;
+        _burn(msg.sender, _amountShares);
         ERC20(asset).safeApprove(address(_swapWrapper), 0);
         ERC20(asset).safeApprove(address(_swapWrapper), _assetsOut);
         uint256 _baseTokenOut = _swapWrapper.swap(asset, address(baseToken), address(this), _assetsOut, _data[20:]);

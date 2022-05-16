@@ -65,7 +65,6 @@ contract STPConstructor is SingleTokenPortfolioTest {
     assertEq(_cap, _portfolio.cap());
     assertEq(_depositFee, _portfolio.depositFee());
     assertEq(_redemptionFee, _portfolio.redemptionFee());
-    assertEq(Math.WAD, _portfolio.exchangeRate());
     assertEq(0, _portfolio.totalAssets());
   }
 }
@@ -141,27 +140,16 @@ contract STPSetRedemptionFee is SingleTokenPortfolioTest {
 }
 
 contract STPExchangeRateConvertMath is SingleTokenPortfolioTest {
-    using stdStorage for StdStorage;
-    function _setExchangeRate(uint256 _exchangeRate) internal {
-        stdstore
-            .target(address(portfolio))
-            .sig(portfolio.exchangeRate.selector)
-            .checked_write(_exchangeRate);
-    }
-
-  function testFuzz_convertToShares(uint256 _exchangeRate, uint256 _amount) public {
-    _exchangeRate = bound(_exchangeRate, Math.WAD / 1000, Math.WAD);
+  using stdStorage for StdStorage;
+  function testFuzz_convertToShares(uint256 _amount) public {
     _amount = bound(_amount, 1, type(uint120).max);
-    _setExchangeRate(_exchangeRate);
     uint256 _shares = portfolio.convertToShares(_amount);
     uint256 _assets = portfolio.convertToAssets(_shares);
     assertApproxEqAbs(_assets, _amount, 1e18);
   }
 
-  function testFuzz_convertToAssets(uint256 _exchangeRate, uint256 _amount) public {
-    _exchangeRate = bound(_exchangeRate,  Math.WAD / 1000, Math.WAD);
+  function testFuzz_convertToAssets(uint256 _amount) public {
     _amount = bound(_amount, 1, type(uint120).max);
-    _setExchangeRate(_exchangeRate);
     uint256 _assets = portfolio.convertToAssets(_amount);
     uint256 _shares = portfolio.convertToShares(_assets);
     assertApproxEqAbs(_shares, _amount, 1e18);
@@ -302,7 +290,7 @@ contract STPIntegrationTest is SingleTokenPortfolioTest {
     vm.prank(board);
     portfolio.takeFees(5e18);
 
-    assertEq(portfolio.convertToAssets(portfolio.balanceOf(alice)), 25e18 - 10); // off by 10 rounding error
+    assertEq(portfolio.convertToAssets(portfolio.balanceOf(alice)), 25e18);
     assertEq(portfolio.totalAssets(), 25e18);
     assertEq(portfolio.totalSupply(), _aliceShares);
     assertEq(testToken1.balanceOf(address(portfolio)), portfolio.totalAssets());
@@ -313,21 +301,21 @@ contract STPIntegrationTest is SingleTokenPortfolioTest {
     // Same assertions about Alice's position
     assertEq(_aliceShares, 30e18);
     assertEq(portfolio.balanceOf(alice), _aliceShares);
-    assertEq(portfolio.convertToAssets(portfolio.balanceOf(alice)), 25e18 - 10);
+    assertEq(portfolio.convertToAssets(portfolio.balanceOf(alice)), 25e18);
     assertEq(portfolio.totalAssets(), 85e18);
     assertEq(testToken1.balanceOf(address(portfolio)), portfolio.totalAssets());
     assertEq(portfolio.totalSupply(), _aliceShares + _bobShares); // 102M shares
 
     // New assertions about Bob's position
     assertEq(portfolio.balanceOf(bob), _bobShares);
-    assertEq(portfolio.convertToAssets(portfolio.balanceOf(bob)), 60e18 - 1); // off by 1 rounding error
+    assertEq(portfolio.convertToAssets(portfolio.balanceOf(bob)), 60e18);
   
-    uint256 _aliceExpected = portfolio.totalAssets() * _aliceShares / portfolio.totalSupply() - 3;
-    uint256 _bobExpected = portfolio.totalAssets() * _bobShares / portfolio.totalSupply() - 7;
+    uint256 _aliceExpected = portfolio.totalAssets() * _aliceShares / portfolio.totalSupply();
+    uint256 _bobExpected = portfolio.totalAssets() * _bobShares / portfolio.totalSupply();
 
     assertEq(portfolio.balanceOf(alice), _aliceShares);
     assertEq(testToken1.balanceOf(address(portfolio)), portfolio.totalAssets());
-    assertEq(portfolio.convertToAssets(portfolio.balanceOf(alice)), 25e18 - 10);
+    assertEq(portfolio.convertToAssets(portfolio.balanceOf(alice)), 25e18);
 
     vm.expectEmit(true, true, false, true);
     emit Redeem(alice, alice, _aliceExpected, _aliceShares);
@@ -338,7 +326,7 @@ contract STPIntegrationTest is SingleTokenPortfolioTest {
 
     assertEq(_aliceNet, baseTokenOut);
     assertEq(_bobNet, baseTokenOut);
-    assertEq(testToken1.balanceOf(address(portfolio)), 11); // 11 dust left in portfolio
+    assertEq(testToken1.balanceOf(address(portfolio)), 0);
   }
 }
 
