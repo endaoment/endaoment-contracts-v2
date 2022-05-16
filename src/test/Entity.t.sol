@@ -1133,14 +1133,14 @@ contract CallAsEntityTest is EntityHarness {
     ) public {
         _deployEntity(_entityType, _manager);
 
-        // ensure the fuzzer hasn't picked one of our contracts, which won't have a fallback
+        // Ensure the fuzzer hasn't picked one of our contracts, which won't have a fallback.
         vm.assume(address(_receiver).code.length == 0);
         uint256 _initialBalance = _receiver.balance;
 
-        // Give the entity an ETH balance
+        // Give the entity an ETH balance.
         vm.deal(address(receivingEntity), _amount);
 
-        // Use callAsEntity to send ETH to receiver
+        // Use callAsEntity to send ETH to receiver.
         vm.prank(board);
         receivingEntity.callAsEntity(_receiver, _amount, "");
 
@@ -1153,16 +1153,17 @@ contract CallAsEntityTest is EntityHarness {
         address _receiver,
         uint256 _amount
     ) public {
-        // ensure the fuzzer hasn't picked one of our contracts, which won't have a fallback
+        _deployEntity(_entityType, _manager);
+
+        // Ensure the fuzzer hasn't picked one of our contracts, which won't have a fallback.
         vm.assume(address(_receiver).code.length == 0);
 
         uint256 _initialBalance = _receiver.balance;
 
-        // Deploy an entity and give it an ETH balance
-        _deployEntity(_entityType, _manager);
+        // Give the entity an ETH balance.
         vm.deal(board, _amount);
 
-        // Use callAsEntity to send ETH to receiver
+        // Use callAsEntity to send ETH to receiver.
         vm.prank(board);
         receivingEntity.callAsEntity{value: _amount}(_receiver, _amount, "");
 
