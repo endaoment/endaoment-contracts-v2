@@ -69,6 +69,9 @@ contract DeployTest is DeployAll, DSTestPlus {
   address public curveExchange = 0x81C46fECa27B31F3ADC2b91eE4be9717d1cd3DD7;
   ISwapWrapper curveSwapWrapper;
 
+  // multiswap wrapper
+  ISwapWrapper multiSwapWrapper;
+
   function setUp() public virtual override {
     super.setUp();
 

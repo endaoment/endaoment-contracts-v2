@@ -53,7 +53,7 @@ contract CurveWrapper is ISwapWrapper {
         
         {
             // If token is ETH and value was sent, ensure the value matches the swap input amount.
-            bool _isInputEth = _tokenIn == eth || (_tokenIn == address(weth) && msg.value > 0);
+            bool _isInputEth = _tokenIn == eth;
             if ((_isInputEth && msg.value != _amount) || (!_isInputEth && msg.value > 0)) revert ETHAmountInMismatch(); 
             
             // If caller isn't sending ETH, we need to transfer in tokens and approve the router

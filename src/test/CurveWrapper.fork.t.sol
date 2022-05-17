@@ -18,7 +18,7 @@ abstract contract CurveWrapperTest is DeployTest {
     uint256 amountOutExpectedB;
 
     // switch flag to true to see amountOuts
-    bool logAmountOut = true;
+    bool logAmountOut = false;
 
     address eth  = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
     address wbtc = 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;
