@@ -121,6 +121,12 @@ contract RegistrySetSwapWrapperStatus is RegistryTest {
         globalTestRegistry.setSwapWrapperStatus(_swapWrapper, _status);
         assertEq(globalTestRegistry.isSwapperSupported(_swapWrapper), _status);
     }
+
+    function testFuzz_SetSwapWrapperStatusUnauthorized(ISwapWrapper _swapWrapper, bool _status) public {
+        vm.prank(user1);
+        vm.expectRevert(Unauthorized.selector);
+        globalTestRegistry.setSwapWrapperStatus(_swapWrapper, _status);
+    }
 }
 
 contract RegistrySetPortfolioStatus is RegistryTest {
@@ -132,6 +138,12 @@ contract RegistrySetPortfolioStatus is RegistryTest {
         vm.prank(actor);
         globalTestRegistry.setPortfolioStatus(_portfolio, _status);
         assertEq(globalTestRegistry.isActivePortfolio(_portfolio), _status);
+    }
+
+    function testFuzz_SetPortfolioStatusFailUnauthorized(Portfolio _portfolio, bool _status) public {
+        vm.prank(user1);
+        vm.expectRevert(Unauthorized.selector);
+        globalTestRegistry.setPortfolioStatus(_portfolio, _status);
     }
 }
 
