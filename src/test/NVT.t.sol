@@ -96,6 +96,157 @@ contract NVTDeployment is NVTTest {
     }
 }
 
+// Testing that NVT tokens can be delegated
+contract Delegatable is NVTTest {
+    function testFuzz_DelegateToAnotherAccount(
+        address _holder,
+        address _delegatee,
+        uint256 _holdAmount
+    ) public {
+        vm.assume(
+            _holder != address(0) &&
+            _delegatee != address(0) &&
+            _holder != _delegatee
+        );
+        _holdAmount = bound(_holdAmount, 0, MAX_DEPOSIT_AMOUNT);
+
+        mintNdaoAndVoteLock(_holder, _holdAmount);
+
+        vm.prank(_holder);
+        nvt.delegate(_delegatee);
+        assertEq(nvt.getVotes(_delegatee), _holdAmount);
+        assertEq(nvt.getVotes(_holder), 0);
+    }
+
+    function testFuzz_DelegateToSelf(
+        address _holder,
+        uint256 _holdAmount
+    ) public {
+        vm.assume(_holder != address(0));
+        _holdAmount = bound(_holdAmount, 0, MAX_DEPOSIT_AMOUNT);
+
+        mintNdaoAndVoteLock(_holder, _holdAmount);
+
+        vm.prank(_holder);
+        nvt.delegate(_holder);
+        assertEq(nvt.getVotes(_holder), _holdAmount);
+    }
+
+    function testFuzz_DelegateAndChange(
+        address _holder,
+        address _delegatee,
+        address _secondDelegatee,
+        uint256 _holdAmount
+    ) public {
+        vm.assume(
+            _holder != address(0) &&
+            _delegatee != address(0) &&
+            _secondDelegatee != address(0) &&
+            _delegatee != _secondDelegatee &&
+            _holder != _delegatee &&
+            _holder != _secondDelegatee
+        );
+        _holdAmount = bound(_holdAmount, 0, MAX_DEPOSIT_AMOUNT);
+
+        mintNdaoAndVoteLock(_holder, _holdAmount);
+
+        vm.startPrank(_holder);
+        nvt.delegate(_delegatee);
+        assertEq(nvt.getVotes(_delegatee), _holdAmount);
+        nvt.delegate(_secondDelegatee);
+        assertEq(nvt.getVotes(_delegatee), 0);
+        assertEq(nvt.getVotes(_secondDelegatee), _holdAmount);
+        vm.stopPrank();
+    }
+
+    function testFuzz_DelegateRemovedAfterVotesUnlocked(address _holder, uint256 _amount, address _delegatee) public {
+        vm.assume(
+            _holder != address(0) &&
+            _delegatee != address(0) &&
+            _holder != _delegatee
+        );
+        _amount = bound(_amount, 0, MAX_DEPOSIT_AMOUNT);
+        mintNdaoAndVoteLock(_holder, _amount);
+
+        vm.prank(_holder);
+        nvt.delegate(_delegatee);
+        assertEq(nvt.getVotes(_delegatee), _amount);
+
+        // None is available immediately
+        assertEq(nvt.availableForWithdrawal(_holder, 0, block.timestamp), 0);
+
+        skip(365 days);
+
+        // Unlock the full balance.
+        UnlockRequest[] memory requests = new UnlockRequest[](1);
+        requests[0] = UnlockRequest({
+            index: 0,
+            amount: _amount
+        });
+        vm.prank(_holder);
+        nvt.unlock(requests);
+
+        // Votes are delegated after unlock
+        assertEq(nvt.getVotes(_delegatee), 0);
+    }
+
+    function testFuzz_DelegateIncreasedWhenMoreVotesLocked(
+        address _holder,
+        address _delegatee,
+        uint256 _holdAmount
+    ) public {
+        vm.assume(
+            _holder != address(0) &&
+            _delegatee != address(0) &&
+            _holder != _delegatee
+        );
+        _holdAmount = bound(_holdAmount, 0, MAX_DEPOSIT_AMOUNT);
+
+        mintNdaoAndVoteLock(_holder, _holdAmount);
+
+        vm.prank(_holder);
+        nvt.delegate(_delegatee);
+        assertEq(nvt.getVotes(_delegatee), _holdAmount);
+
+        mintNdaoAndVoteLock(_holder, _holdAmount);
+        assertEq(nvt.getVotes(_delegatee), _holdAmount * 2);
+    }
+
+    function testFuzz_DelegateReflectPastState(
+        address _holder,
+        address _delegatee,
+        uint256 _holdAmount
+    ) public {
+        vm.assume(
+            _holder != address(0) &&
+            _delegatee != address(0) &&
+            _holder != _delegatee
+        );
+        _holdAmount = bound(_holdAmount, 0, MAX_DEPOSIT_AMOUNT);
+
+        mintNdaoAndVoteLock(_holder, _holdAmount);
+
+        vm.prank(_holder);
+        nvt.delegate(_delegatee);
+        assertEq(nvt.getVotes(_delegatee), _holdAmount);
+        assertEq(nvt.getVotes(_holder), 0);
+
+        uint blockOfDelegation = block.number;
+
+        vm.roll(100);
+
+        mintNdaoAndVoteLock(_holder, _holdAmount);
+
+        vm.prank(_holder);
+        nvt.delegate(_delegatee);
+        assertEq(nvt.getVotes(_delegatee), _holdAmount * 2);
+        assertEq(nvt.getVotes(_holder), 0);
+
+        assertEq(nvt.getPastVotes(_holder, blockOfDelegation), 0);
+        assertEq(nvt.getPastVotes(_delegatee, blockOfDelegation), _holdAmount);
+    }
+}
+
 // Testing that NVT tokens cannot be transferred.
 contract NonTransferable is NVTTest {
 
@@ -109,7 +260,7 @@ contract NonTransferable is NVTTest {
             _holder != address(0) &&
             _receiver != address(0)
         );
-        _holdAmount = bound(_holdAmount, 0, MAX_DEPOSIT_AMOUNT); // Enforced via ERC20Votes._maxSupply()
+        _holdAmount = bound(_holdAmount, 0, MAX_DEPOSIT_AMOUNT);
         _transferAmount = bound(_transferAmount, 0, _holdAmount);
 
         mintNdaoAndVoteLock(_holder, _holdAmount);
