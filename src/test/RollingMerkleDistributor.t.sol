@@ -566,6 +566,7 @@ contract Claim is RollingMerkleDistributorTest {
 
         // Deploy a new distributor.
         RollingMerkleDistributor _distributor = new RollingMerkleDistributor(token, _root, 7 days, globalTestRegistry);
+        vm.assume(_claimant != address(_distributor));
         uint256 _window = _distributor.windowEnd();
 
         // Fund the distributor.
