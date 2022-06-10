@@ -5,7 +5,9 @@
 This repo is built using [Foundry](https://github.com/gakonst/foundry)
 
 1. [Install Foundry](https://github.com/gakonst/foundry#installation)
-1. Install dependencies with `make install`
+2. Install dependencies with `make install`
+
+To set up this repository with Windows, check [this page.](./docs/windows-setup.md)
 
 ## Development
 
