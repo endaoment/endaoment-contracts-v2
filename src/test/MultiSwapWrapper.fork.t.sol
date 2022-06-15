@@ -90,4 +90,49 @@ contract MultiSwapWrapperTest is DeployTest {
       // Since stETH's balance is computed virtually, allow "off by 2" in assertion
       assertApproxEqAbs(ERC20(steth).balanceOf(receiver), _amountOut, 1);
   }
+
+  function test_swap_multi_reverse() public {
+      uint256 _amountOut;
+      amountOutExpected = 1954718457;
+      amount = 1e18;
+      sender = 0x1982b2F5814301d4e9a8b0201555376e62F82428; // stETH rich
+      // each swap needs [bytes20 wrapper address, bytes20 tokenOut, bytes4 payloadLength, bytesPAYLOADLENGTH data]
+      bytes memory swap1Payload = abi.encode(ethStethCurvePool, uint256(0));
+      bytes memory swap2Payload = bytes.concat(
+        abi.encode(uint256(2649787227), uint256(0)),
+        bytes.concat(bytes20(weth), abi.encodePacked(uint24(3000)), bytes20(usdc))
+      );
+      bytes memory _data = bytes.concat(
+        bytes2(uint16(2)), // payload should start with bytes2 of nSwaps
+
+        // first swap: stETH to ETH
+        // [bytes20 wrapper address, bytes20 tokenOut, bytes4 payloadLength, bytesPAYLOADLENGTH data]
+        bytes20(address(curveSwapWrapper)),
+        bytes20(eth),
+        abi.encodePacked(uint32(swap1Payload.length)),
+        swap1Payload,
+
+        // second swap: eth to usdc via uniswap
+        // [bytes20 wrapper address, bytes20 tokenOut, bytes4 payloadLength, bytesPAYLOADLENGTH data]
+        bytes20(address(uniV3SwapWrapper)),
+        bytes20(usdc),
+        abi.encodePacked(uint32(swap2Payload.length)),
+        swap2Payload
+      );
+
+      vm.expectEmit(true, true, true, true);
+      emit WrapperSwapExecuted(steth, usdc, sender, receiver, amount, amountOutExpected);
+
+      vm.startPrank(sender);
+      ERC20(steth).safeApprove(address(multiSwapWrapper), amount);
+      _amountOut = multiSwapWrapper.swap(steth, usdc, receiver, amount, _data);
+      vm.stopPrank();
+
+      if(logAmountOut) {
+          console2.log(ERC20(steth).symbol(), ERC20(usdc).symbol(), _amountOut);
+      }
+
+      assertEq(_amountOut, amountOutExpected);
+      assertEq(ERC20(usdc).balanceOf(receiver), _amountOut);
+  }
 }
