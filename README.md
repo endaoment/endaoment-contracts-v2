@@ -21,6 +21,11 @@ Currently many tests are fuzz tests, where the fuzzer will generate a value betw
 
 For more information, see the [fuzz testing section of the Foundry book](https://onbjerg.github.io/foundry-book/forge/fuzz-testing.html).
 
+### Deployment
+
+For information regarding scripts to accomplish contract deployment, see the [Scripts README file](/script/README.md).
+
+
 # Contracts
 
 The Endaoment ecosystem uses several contracts to govern the movement of funds between Donor-Advised Funds (DAFs) and organizations:
