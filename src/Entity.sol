@@ -80,7 +80,7 @@ abstract contract Entity is EndaomentAuth {
      * @param _registry The registry to host the Entity.
      * @param _manager The address of the Entity's manager.
      */
-    function initialize(Registry _registry, address _manager) public {
+    function initialize(Registry _registry, address _manager) public virtual {
         // Call to EndaomentAuth's initialize function ensures that this can't be called again
         initialize(_registry, bytes20(bytes.concat("entity", bytes1(entityType()))));
         registry = _registry;
@@ -93,7 +93,7 @@ abstract contract Entity is EndaomentAuth {
      * @param _manager Address of new manager.
      * @dev Callable by current manager or permissioned role.
      */
-    function setManager(address _manager) external requiresManager {
+    function setManager(address _manager) external virtual requiresManager {
         emit EntityManagerSet(manager, _manager);
         manager = _manager;
     }
@@ -104,7 +104,7 @@ abstract contract Entity is EndaomentAuth {
      * @dev Reverts if the donation fee percentage is larger than 100% (equal to 1e4 when represented as a zoc).
      * @dev Reverts if the token transfer fails.
      */
-    function donate(uint256 _amount) external {
+    function donate(uint256 _amount) external virtual {
         uint32 _feeMultiplier = registry.getDonationFee(this);
         _donateWithFeeMultiplier(_amount, _feeMultiplier);
     }
@@ -115,7 +115,7 @@ abstract contract Entity is EndaomentAuth {
      * @dev Reverts if the donation fee percentage is larger than 100% (equal to 1e4 when represented as a zoc).
      * @dev Reverts if the token transfer fails.
      */
-    function donateWithOverrides(uint256 _amount) external {
+    function donateWithOverrides(uint256 _amount) external virtual {
         uint32 _feeMultiplier = registry.getDonationFeeWithOverrides(this);
         _donateWithFeeMultiplier(_amount, _feeMultiplier);
     }
@@ -127,7 +127,7 @@ abstract contract Entity is EndaomentAuth {
      * @dev Reverts if the donation fee percentage is larger than 100% (equal to 1e4 when represented as a zoc).
      * @dev Reverts if the token transfer fails.
      */
-    function _donateWithFeeMultiplier(uint256 _amount, uint32 _feeMultiplier) internal {
+    function _donateWithFeeMultiplier(uint256 _amount, uint32 _feeMultiplier) internal virtual {
 
         (uint256 _netAmount, uint256 _fee) = _calculateFee(_amount, _feeMultiplier);
         baseToken.safeTransferFrom(msg.sender, registry.treasury(), _fee);
@@ -153,7 +153,7 @@ abstract contract Entity is EndaomentAuth {
         address _tokenIn,
         uint256 _amountIn,
         bytes calldata _data
-    ) external payable {
+    ) external virtual payable {
         uint32 _feeMultiplier = registry.getDonationFee(this);
         _swapAndDonateWithFeeMultiplier(_swapWrapper, _tokenIn, _amountIn, _data, _feeMultiplier);
     }
@@ -171,7 +171,7 @@ abstract contract Entity is EndaomentAuth {
         address _tokenIn,
         uint256 _amountIn,
         bytes calldata _data
-    ) external payable {
+    ) external virtual payable {
         uint32 _feeMultiplier = registry.getDonationFeeWithOverrides(this);
         _swapAndDonateWithFeeMultiplier(_swapWrapper, _tokenIn, _amountIn, _data, _feeMultiplier);
     }
@@ -183,7 +183,7 @@ abstract contract Entity is EndaomentAuth {
         uint256 _amountIn,
         bytes calldata _data,
         uint32 _feeMultiplier
-    ) internal {
+    ) internal virtual {
         if (!registry.isSwapperSupported(_swapWrapper)) revert InvalidAction();
 
         // THINK: do we need a re-entrancy guard on this method?
@@ -221,7 +221,7 @@ abstract contract Entity is EndaomentAuth {
      * @dev Reverts if the transfer fee percentage is larger than 100% (equal to 1e4 when represented as a zoc).
      * @dev Reverts with `Unauthorized` if the `msg.sender` is not the entity manager or a privileged role.
      */
-    function transfer(Entity _to, uint256 _amount) requiresManager external {
+    function transfer(Entity _to, uint256 _amount) requiresManager external virtual {
         uint32 _feeMultiplier = registry.getTransferFee(this, _to);
         _transferWithFeeMultiplier(_to, _amount, _feeMultiplier);
     }
@@ -234,7 +234,7 @@ abstract contract Entity is EndaomentAuth {
      * @dev Reverts if the transfer fee percentage is larger than 100% (equal to 1e4 when represented as a zoc).
      * @dev Reverts with `Unauthorized` if the `msg.sender` is not the entity manager or a privileged role.
      */
-    function transferWithOverrides(Entity _to, uint256 _amount) requiresManager external {
+    function transferWithOverrides(Entity _to, uint256 _amount) requiresManager external virtual {
         uint32 _feeMultiplier = registry.getTransferFeeWithOverrides(this, _to);
         _transferWithFeeMultiplier(_to, _amount, _feeMultiplier);
     }
@@ -248,7 +248,7 @@ abstract contract Entity is EndaomentAuth {
      * @dev Reverts if the transfer fee percentage is larger than 100% (equal to 1e4 when represented as a zoc).
      * @dev Reverts with `Unauthorized` if the `msg.sender` is not the entity manager or a privileged role.
      */
-    function _transferWithFeeMultiplier(Entity _to, uint256 _amount, uint32 _feeMultiplier) internal {
+    function _transferWithFeeMultiplier(Entity _to, uint256 _amount, uint32 _feeMultiplier) internal virtual {
         if (!registry.isActiveEntity(this)) revert EntityInactive();
         if (balance < _amount) revert InsufficientFunds();
 
@@ -269,7 +269,7 @@ abstract contract Entity is EndaomentAuth {
      * @param _transferAmount The amount being received on the transfer.
      * @dev This function is public, but is restricted such that it can only be called by other entities.
      */
-     function receiveTransfer(uint256 _transferAmount) public {
+     function receiveTransfer(uint256 _transferAmount) external virtual {
          if (!registry.isActiveEntity(Entity(msg.sender))) revert InvalidTransferAttempt();
          unchecked {
              // Cannot overflow with realistic balances.
@@ -284,7 +284,7 @@ abstract contract Entity is EndaomentAuth {
      * @param _data Data required by a portfolio to deposit.
      * @return _shares Amount of portfolio share tokens Entity received as a result of this deposit.
      */
-    function portfolioDeposit(Portfolio _portfolio, uint256 _amount, bytes calldata _data) external requiresManager returns (uint256) {
+    function portfolioDeposit(Portfolio _portfolio, uint256 _amount, bytes calldata _data) external virtual requiresManager returns (uint256) {
         if(!registry.isActivePortfolio(_portfolio)) revert PortfolioInactive();
         balance -= _amount;
         baseToken.approve(address(_portfolio), _amount);
@@ -300,7 +300,7 @@ abstract contract Entity is EndaomentAuth {
      * @param _data Data required by a portfolio to redeem.
      * @return _received Amount of `baseToken` Entity received as a result of this redemption.
      */
-    function portfolioRedeem(Portfolio _portfolio, uint256 _shares, bytes calldata _data) external requiresManager returns (uint256) {
+    function portfolioRedeem(Portfolio _portfolio, uint256 _shares, bytes calldata _data) external virtual requiresManager returns (uint256) {
         if(!registry.isActivePortfolio(_portfolio)) revert PortfolioInactive();
         uint256 _received = _portfolio.redeem(_shares, _data);
         // unchecked: a realistic balance can never overflow a uint256
@@ -320,7 +320,7 @@ abstract contract Entity is EndaomentAuth {
      * 2. Unusually, the Entity's perspective of balance could be lower than `baseToken.balanceOf(this)`. This could happen if
      * Entity:callAsEntity is used to transfer baseToken. In this case, this method provides a way of correcting the Entity's internal balance.
      */
-    function reconcileBalance() external {
+    function reconcileBalance() external virtual {
         uint256 _tokenBalance = baseToken.balanceOf(address(this));
 
         if (_tokenBalance >= balance) {
@@ -353,7 +353,7 @@ abstract contract Entity is EndaomentAuth {
         address _tokenIn,
         uint256 _amountIn,
         bytes calldata _data
-    ) external requiresManager {
+    ) external virtual requiresManager {
         if (!registry.isSwapperSupported(_swapWrapper)) revert InvalidAction();
 
         uint32 _feeMultiplier = registry.getDonationFeeWithOverrides(this);
@@ -396,7 +396,7 @@ abstract contract Entity is EndaomentAuth {
         address _target,
         uint256 _value,
         bytes memory _data
-    ) external payable requiresAuth returns (bytes memory) {
+    ) external virtual payable requiresAuth returns (bytes memory) {
         (bool _success, bytes memory _response) = payable(_target).call{value: _value}(_data);
         if (!_success) revert CallFailed(_response);
         return _response;
@@ -411,7 +411,7 @@ abstract contract Entity is EndaomentAuth {
      * @dev Reverts if the fee percentage is larger than 100% (equal to 1e4 when represented as a zoc).
      * @dev Reverts if the token transfer fails.
      */
-    function payout(address _to, uint256 _amount) external requiresAuth {
+    function payout(address _to, uint256 _amount) external virtual requiresAuth {
         uint32 _feeMultiplier = registry.getPayoutFee(this);
         _payoutWithFeeMultiplier(_to, _amount, _feeMultiplier);
     }
@@ -424,7 +424,7 @@ abstract contract Entity is EndaomentAuth {
      * @dev Reverts if the fee percentage is larger than 100% (equal to 1e4 when represented as a zoc).
      * @dev Reverts if the token transfer fails.
      */
-    function payoutWithOverrides(address _to, uint256 _amount) external requiresAuth {
+    function payoutWithOverrides(address _to, uint256 _amount) external virtual requiresAuth {
         uint32 _feeMultiplier = registry.getPayoutFeeWithOverrides(this);
         _payoutWithFeeMultiplier(_to, _amount, _feeMultiplier);
     }
@@ -437,7 +437,7 @@ abstract contract Entity is EndaomentAuth {
      * @dev Reverts if the token transfer fails.
      * @dev Reverts if the fee percentage is larger than 100% (equal to 1e4 when represented as a zoc).
      */
-    function _payoutWithFeeMultiplier(address _to, uint256 _amount, uint32 _feeMultiplier) internal {
+    function _payoutWithFeeMultiplier(address _to, uint256 _amount, uint32 _feeMultiplier) internal virtual {
         if (balance < _amount) revert InsufficientFunds();
         
         (uint256 _netAmount, uint256 _fee) = _calculateFee(_amount, _feeMultiplier);
@@ -455,7 +455,7 @@ abstract contract Entity is EndaomentAuth {
     function _calculateFee(
         uint256 _amount,
         uint256 _feeMultiplier
-    ) internal pure returns (uint256 _netAmount, uint256 _fee) {
+    ) internal virtual pure returns (uint256 _netAmount, uint256 _fee) {
         if (_feeMultiplier > Math.ZOC) revert InvalidAction();
         unchecked {
             // unchecked as no possibility of overflow with baseToken precision

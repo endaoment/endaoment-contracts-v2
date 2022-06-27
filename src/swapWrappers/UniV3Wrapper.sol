@@ -95,12 +95,12 @@ contract UniV3Wrapper is ISwapWrapper {
     }
 
     /// @dev The first 20 bytes is the address at the start of the path, and the last 20 bytes are the address of the path's end.
-    function _decodePathTokens(bytes calldata _path) internal pure returns (address, address) {
+    function _decodePathTokens(bytes calldata _path) private pure returns (address, address) {
         return (address(bytes20(_path[:20])), address(bytes20(_path[_path.length - 20:])));
     }
 
     /// @dev This method is used to safety check that the provided swap path is swapping the intended tokens.
-    function _assertMatchingTokenPathPair(address _token, address _path) internal view {
+    function _assertMatchingTokenPathPair(address _token, address _path) private view {
         if(!(_path == _token || (_path == address(weth) && _token == eth))) revert PathMismatch();
     }
 

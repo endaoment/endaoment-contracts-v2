@@ -65,7 +65,7 @@ contract SingleTokenPortfolio is Portfolio {
      * @dev Rounding down favors the portfolio, so the user gets slightly less and the portfolio gets slightly more, that way it prevents
      * a situation where the user is owed x but the vault only has x - epsilon, where epsilon is some tiny number due to rounding error.
      */
-    function _convertToSharesLessAssets(uint256 _assets) internal view returns (uint256) {
+    function _convertToSharesLessAssets(uint256 _assets) private view returns (uint256) {
         uint256 _supply = totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
         return _supply == 0 ? _assets : _assets.mulDivDown(totalSupply, totalAssets() - _assets);
     }

@@ -20,7 +20,7 @@ contract NDAO is ERC20, EndaomentAuth {
      * @param _to Address where newly minted tokens will be sent.
      * @param _amount Amount of tokens to mint.
      */
-    function mint(address _to, uint256 _amount) public requiresAuth {
+    function mint(address _to, uint256 _amount) external requiresAuth {
         _mint(_to, _amount);
     }
 }

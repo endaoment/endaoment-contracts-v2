@@ -117,7 +117,7 @@ contract Registry is RolesAuthority {
      * @param _value The value to be converted.
      * @return The parsed fee to use.
      */
-    function _parseFeeWithFlip(uint32 _value) internal pure returns (uint32) {
+    function _parseFeeWithFlip(uint32 _value) private pure returns (uint32) {
         if (_value == 0) {
             return type(uint32).max;
         } else if (_value == type(uint32).max) {

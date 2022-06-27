@@ -158,7 +158,7 @@ contract OrgFundFactory is EntityFactory {
     }
 
     /// @dev Pulls base tokens from sender and donates them to the entity.
-    function _donate(Entity _entity, uint256 _amount) internal {
+    function _donate(Entity _entity, uint256 _amount) private {
         // Send tokens directly to the entity, then reconcile its balance. Cheaper than doing a double transfer
         // and calling `donate`.
         baseToken.safeTransferFrom(msg.sender, address(_entity), _amount);
@@ -172,7 +172,7 @@ contract OrgFundFactory is EntityFactory {
         address _tokenIn,
         uint256 _amountIn,
         bytes calldata _data
-    ) internal {
+    ) private {
         if (_tokenIn != ETH_PLACEHOLDER) {
             ERC20(_tokenIn).safeTransferFrom(msg.sender, address(this), _amountIn);
             ERC20(_tokenIn).safeApprove(address(_entity), 0);

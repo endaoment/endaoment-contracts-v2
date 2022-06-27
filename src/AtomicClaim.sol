@@ -22,7 +22,7 @@ contract AtomicClaim {
         uint256 _index,
         uint256 _amount,
         bytes32[] calldata _merkleProof
-    ) public {
+    ) external {
         _distributor.claim(RollingMerkleDistributorTypes.Claim({
             index: _index,
             claimant: address(_entity),

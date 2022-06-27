@@ -283,7 +283,7 @@ contract NVT is NVTTypes, ERC20Votes, EndaomentAuth {
      * @param _amount The number of NDAO tokens to be converted to NVT and vested.
      * @param _period The length of time over which tokens vest in seconds. Must be > 0.
      */
-    function vestLock(address _vestee, uint256 _amount, uint256 _period) public requiresAuth {
+    function vestLock(address _vestee, uint256 _amount, uint256 _period) external requiresAuth {
         if (_period == 0) revert InvalidVestingPeriod();
         if (_amount > type(uint96).max) revert InvalidAmount();
         if (vestingSchedules[_vestee].vestDate != 0) revert AccountAlreadyVesting();
@@ -305,7 +305,7 @@ contract NVT is NVTTypes, ERC20Votes, EndaomentAuth {
      * @notice Unlocks NVT tokens which have vested to the caller for NDAO.
      * @param _amount The number of NDAO which will be unlocked by burning vested NVT.
      */
-    function unlockVested(uint256 _amount) public {
+    function unlockVested(uint256 _amount) external {
         uint256 _available = availableForVestUnlock(msg.sender, block.timestamp);
         if (_amount > _available) revert InvalidUnlockRequest();
 
@@ -326,7 +326,7 @@ contract NVT is NVTTypes, ERC20Votes, EndaomentAuth {
      * tokens, whether they have been unlocked or not.
      * @param _vestee The vestee to claw back from.
      */
-    function clawback(address _vestee) public requiresAuth {
+    function clawback(address _vestee) external requiresAuth {
         uint256 _vestedBalance = availableForVestUnlock(_vestee, block.timestamp);
 
         uint256 _unvestedBalance;

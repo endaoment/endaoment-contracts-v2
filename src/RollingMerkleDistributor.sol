@@ -100,7 +100,7 @@ contract RollingMerkleDistributor is RollingMerkleDistributorTypes, EndaomentAut
      * @param _newRoot The new Merkle root for this distribution.
      * @param _period The length of the new claim window in seconds. Must be less than MAX_PERIOD.
      */
-    function rollover(bytes32 _newRoot, uint256 _period) public requiresAuth {
+    function rollover(bytes32 _newRoot, uint256 _period) external requiresAuth {
         if (windowEnd >= block.timestamp) revert PriorWindowStillOpen();
         if (_period == 0 || _period > MAX_PERIOD) revert InvalidPeriod();
 

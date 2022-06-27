@@ -111,8 +111,8 @@ contract MultiSwapWrapper is ISwapWrapper {
         }
     }
 
-    /// @dev Internal swap method to carry out the swap. Helpful to avoid stack too deep problem.
-    function _swap(ISwapWrapper _wrapper, address _tokenIn, address _tokenOut, address _recipient, uint256 _amount, bytes calldata _data) internal returns (uint256) {
+    /// @dev private swap method to carry out the swap. Helpful to avoid stack too deep problem.
+    function _swap(ISwapWrapper _wrapper, address _tokenIn, address _tokenOut, address _recipient, uint256 _amount, bytes calldata _data) private returns (uint256) {
         return _wrapper.swap{value: _tokenIn == eth ? _amount : 0}(_tokenIn, _tokenOut, _recipient, _amount, _data);
     }
 
