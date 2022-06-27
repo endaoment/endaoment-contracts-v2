@@ -424,6 +424,20 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         entity.transfer(receivingEntity, 1);
     }
 
+    // Test that a transfer fails to an inactive Entity
+    function testFuzz_TransferFailInactiveDestination(address _manager, address _receivingManager, uint8 _receivingEntityTypeIndex) public {
+        uint8 _receivingType = _deployEntity(_receivingEntityTypeIndex, _receivingManager);
+        vm.startPrank(board);
+        entity.setManager(_manager);
+        globalTestRegistry.setDefaultTransferFee(testEntityType, _receivingType, onePercentZoc);
+        globalTestRegistry.setEntityStatus(entity, true);
+        globalTestRegistry.setEntityStatus(receivingEntity, false);
+        vm.stopPrank();
+        vm.prank(_manager);
+        vm.expectRevert(abi.encodeWithSelector(EntityInactive.selector));
+        entity.transfer(receivingEntity, 1);
+    }
+
     // Test that a transfer fails when the caller is not authorized
     function testFuzz_TransferFailUnauthorized(address _caller, address _manager, address _receivingManager, uint8 _receivingEntityTypeIndex) public {
         vm.assume(_caller != _manager);

@@ -244,12 +244,13 @@ abstract contract Entity is EndaomentAuth {
      * @param _to The entity to receive the tokens.
      * @param _amount Contains the amount being donated (denominated in the base token's units).
      * @param _feeMultiplier Value indicating the percentage of the Endaoment donation fee to go to the Endaoment treasury.
-     * @dev Reverts if the entity is inactive or if the token transfer fails.
+     * @dev Reverts with 'Inactive' if the entity sending the transfer or the entity receiving the transfer is inactive.
      * @dev Reverts if the transfer fee percentage is larger than 100% (equal to 1e4 when represented as a zoc).
      * @dev Reverts with `Unauthorized` if the `msg.sender` is not the entity manager or a privileged role.
+     * @dev Reverts if the token transfer fails.
      */
     function _transferWithFeeMultiplier(Entity _to, uint256 _amount, uint32 _feeMultiplier) internal virtual {
-        if (!registry.isActiveEntity(this)) revert EntityInactive();
+        if (!registry.isActiveEntity(this) || !registry.isActiveEntity(_to)) revert EntityInactive();
         if (balance < _amount) revert InsufficientFunds();
 
         (uint256 _netAmount, uint256 _fee) = _calculateFee(_amount, _feeMultiplier);
