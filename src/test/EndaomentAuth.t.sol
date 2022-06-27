@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD 3-Claused
-pragma solidity ^0.8.12;
+pragma solidity 0.8.13;
 
 import { Auth, Authority } from "../lib/auth/Auth.sol";
 import { RolesAuthority } from "../lib/auth/authorities/RolesAuthority.sol";

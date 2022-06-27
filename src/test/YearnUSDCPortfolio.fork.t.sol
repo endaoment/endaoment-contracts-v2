@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD 3-Claused
-pragma solidity ^0.8.12;
+pragma solidity 0.8.13;
 import "./utils/DeployTest.sol";
 import "../Registry.sol";
 import { IYVault } from "../interfaces/IYVault.sol";

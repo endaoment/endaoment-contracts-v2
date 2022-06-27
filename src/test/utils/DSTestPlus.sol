@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD 3-Claused
-pragma solidity ^0.8.12;
+pragma solidity 0.8.13;
 
 import { DSTestPlus as DSTestPlusSolmate } from "solmate/test/utils/DSTestPlus.sol";
 import "forge-std/Test.sol";

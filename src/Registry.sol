@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: BSD 3-Clause
-pragma solidity ^0.8.12;
+pragma solidity 0.8.13;
 
 import { Math } from "./lib/Math.sol";
 import { ERC20 } from "solmate/tokens/ERC20.sol";

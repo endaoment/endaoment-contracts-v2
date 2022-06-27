@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: BSD 3-Clause
-pragma solidity ^0.8.12;
+pragma solidity 0.8.13;
 
 import { ERC20Votes } from "openzeppelin-contracts/contracts/token/ERC20/extensions/ERC20Votes.sol";
 import { ERC20Permit } from "openzeppelin-contracts/contracts/token/ERC20/extensions/draft-ERC20Permit.sol";

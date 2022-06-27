@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: BSD 3-Clause
-pragma solidity ^0.8.12;
+pragma solidity 0.8.13;
 
 import { ISwapWrapper, ETHAmountInMismatch } from "../interfaces/ISwapWrapper.sol";
 import { ICurveExchange } from "../interfaces/ICurveExchange.sol";
