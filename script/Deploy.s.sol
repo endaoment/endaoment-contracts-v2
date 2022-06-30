@@ -79,13 +79,16 @@ contract Deploy is Script, RolesAndCapabilitiesControl {
      * @notice Setup the proper roles and capabilities for the capitalCommittee, programCommittee, investmentCommittee, and tokenTrust.
      */
     function setAllRoles(address _capitalCommittee, address _programCommittee, address _investmentCommittee, address _tokenTrust) public {
-
         vm.startBroadcast();
         setRolesAndCapabilities(registry, _capitalCommittee, _programCommittee, _investmentCommittee, _tokenTrust,
                                 deployedContracts.ndao, deployedContracts.nvt, deployedContracts.distributor, deployedContracts.baseDistributor);
 
         vm.stopBroadcast();
-        console2.log("Role/capability setting SUCCESS");
+
+        console2.log("Capital Committee: (2)", _capitalCommittee);
+        console2.log("Program Committee: (3)", _programCommittee);
+        console2.log("Investment Committee: (4)", _investmentCommittee);
+        console2.log("Token Trust: (5)", _tokenTrust);
     }
 
     /**
@@ -94,6 +97,6 @@ contract Deploy is Script, RolesAndCapabilitiesControl {
     function setBoard(address _newRegistryOwner) public {
         vm.broadcast();
         registry.setOwner(_newRegistryOwner);
-        console2.log("Registry owner is now ", _newRegistryOwner);
+        console2.log("Registry owner: (0)" , _newRegistryOwner);
     }
 }
