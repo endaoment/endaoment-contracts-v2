@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: BSD 3-Clause
 pragma solidity 0.8.13;
+
 import "./utils/DeployTest.sol";
 import "../Registry.sol";
 
-import { OrgFundFactory } from "../OrgFundFactory.sol";
-import { Org } from "../Org.sol";
-import { Fund } from "../Fund.sol";
-import { MockSwapperTestHarness } from "./utils/MockSwapperTestHarness.sol";
+import {OrgFundFactory} from "../OrgFundFactory.sol";
+import {Org} from "../Org.sol";
+import {Fund} from "../Fund.sol";
+import {MockSwapperTestHarness} from "./utils/MockSwapperTestHarness.sol";
 
 contract OrgFundFactoryTest is MockSwapperTestHarness {
     event EntityDeployed(address indexed entity, uint8 indexed entityType, address indexed entityManager);
@@ -20,11 +21,11 @@ contract OrgFundFactoryConstructor is OrgFundFactoryTest {
 }
 
 contract OrgFundFactoryDeployOrgTest is OrgFundFactoryTest {
-    function testFuzz_DeployOrg(bytes32 _orgId, bytes32 _salt) public {
-        address _expectedContractAddress = orgFundFactory.computeOrgAddress(_salt);
+    function testFuzz_DeployOrg(bytes32 _orgId) public {
+        address _expectedContractAddress = orgFundFactory.computeOrgAddress(_orgId);
         vm.expectEmit(true, true, true, false);
         emit EntityDeployed(_expectedContractAddress, 1, address(0));
-        Org _org = orgFundFactory.deployOrg(_orgId, _salt);
+        Org _org = orgFundFactory.deployOrg(_orgId);
         assertEq(_org.orgId(), _orgId);
         assertEq(globalTestRegistry, _org.registry());
         assertEq(_org.entityType(), 1);
@@ -32,43 +33,42 @@ contract OrgFundFactoryDeployOrgTest is OrgFundFactoryTest {
         assertEq(_expectedContractAddress, address(_org));
     }
 
-    function testFuzz_DeployOrgFailDuplicate(bytes32 _orgId, bytes32 _salt) public {
-        orgFundFactory.deployOrg(_orgId, _salt);
+    function testFuzz_DeployOrgFailDuplicate(bytes32 _orgId) public {
+        orgFundFactory.deployOrg(_orgId);
         vm.expectRevert("ERC1167: create2 failed");
-        orgFundFactory.deployOrg(_orgId, _salt);
+        orgFundFactory.deployOrg(_orgId);
     }
 
-    function testFuzz_DeployOrgFailNonWhiteListedFactory(bytes32 _orgId, bytes32 _salt) public {
+    function testFuzz_DeployOrgFailNonWhiteListedFactory(bytes32 _orgId) public {
         OrgFundFactory orgFundFactory2 = new OrgFundFactory(globalTestRegistry);
         vm.expectRevert(abi.encodeWithSelector(Unauthorized.selector));
-        orgFundFactory2.deployOrg(_orgId, _salt);
+        orgFundFactory2.deployOrg(_orgId);
     }
 
-    function testFuzz_DeployOrgFailAfterUnwhitelisting(bytes32 _orgId, bytes32 _salt) public {
-        bytes32 _salt2 = keccak256(abi.encode(_salt));
+    function testFuzz_DeployOrgFailAfterUnwhitelisting(bytes32 _orgId) public {
         vm.assume(_orgId != "1234");
-        orgFundFactory.deployOrg(_orgId, _salt);
+        orgFundFactory.deployOrg(_orgId);
         vm.prank(board);
         globalTestRegistry.setFactoryApproval(address(orgFundFactory), false);
         vm.expectRevert(abi.encodeWithSelector(Unauthorized.selector));
-        orgFundFactory.deployOrg("1234", _salt2);
+        orgFundFactory.deployOrg("1234");
     }
 
-    function testFuzz_DeployOrgFromFactory2(bytes32 _orgId, bytes32 _salt) public {
+    function testFuzz_DeployOrgFromFactory2(bytes32 _orgId) public {
         OrgFundFactory orgFundFactory2 = new OrgFundFactory(globalTestRegistry);
         vm.prank(board);
         globalTestRegistry.setFactoryApproval(address(orgFundFactory2), true);
-        address _expectedContractAddress = orgFundFactory2.computeOrgAddress(_salt);
+        address _expectedContractAddress = orgFundFactory2.computeOrgAddress(_orgId);
         vm.expectEmit(true, true, true, false);
         emit EntityDeployed(_expectedContractAddress, 1, address(0));
-        Org _org = orgFundFactory2.deployOrg(_orgId, _salt);
+        Org _org = orgFundFactory2.deployOrg(_orgId);
         assertEq(_org.orgId(), _orgId);
         assertEq(globalTestRegistry, _org.registry());
         assertEq(_org.entityType(), 1);
         assertEq(_expectedContractAddress, address(_org));
     }
 
-    function testFuzz_DeployOrgAndDonate(bytes32 _orgId, bytes32 _salt, address _sender, uint256 _amount) public {
+    function testFuzz_DeployOrgAndDonate(bytes32 _orgId, address _sender, uint256 _amount) public {
         vm.assume(_sender != address(orgFundFactory));
 
         // Give the sender tokens & approve the factory to spend them.
@@ -79,11 +79,11 @@ contract OrgFundFactoryDeployOrgTest is OrgFundFactoryTest {
         // Enable Org donations with no fee.
         vm.prank(board);
         globalTestRegistry.setDefaultDonationFee(1, 0);
-        address _expectedAddress = orgFundFactory.computeOrgAddress(_salt);
+        address _expectedAddress = orgFundFactory.computeOrgAddress(_orgId);
 
         // Deploy and donate.
         vm.prank(_sender);
-        Org _org = orgFundFactory.deployOrgAndDonate(_orgId, _salt, _amount);
+        Org _org = orgFundFactory.deployOrgAndDonate(_orgId, _amount);
 
         assertEq(_expectedAddress, address(_org));
         assertEq(baseToken.balanceOf(address(_org)), _amount);
@@ -92,7 +92,6 @@ contract OrgFundFactoryDeployOrgTest is OrgFundFactoryTest {
 
     function testFuzz_DeployOrgSwapAndDonate(
         bytes32 _orgId,
-        bytes32 _salt,
         address _sender,
         uint256 _donationAmount,
         uint256 _amountOut
@@ -108,18 +107,12 @@ contract OrgFundFactoryDeployOrgTest is OrgFundFactoryTest {
         // Enable Org donations with no fee.
         vm.prank(board);
         globalTestRegistry.setDefaultDonationFee(1, 0);
-        address _expectedAddress = orgFundFactory.computeOrgAddress(_salt);
+        address _expectedAddress = orgFundFactory.computeOrgAddress(_orgId);
 
         // Deploy, swap and donate.
         vm.prank(_sender);
-        Org _org = orgFundFactory.deployOrgSwapAndDonate(
-            _orgId,
-            _salt,
-            mockSwapWrapper,
-            address(testToken1),
-            _donationAmount,
-            ""
-        );
+        Org _org =
+            orgFundFactory.deployOrgSwapAndDonate(_orgId, mockSwapWrapper, address(testToken1), _donationAmount, "");
 
         assertEq(_expectedAddress, address(_org));
         assertEq(baseToken.balanceOf(address(_org)), mockSwapWrapper.amountOut());
@@ -128,7 +121,6 @@ contract OrgFundFactoryDeployOrgTest is OrgFundFactoryTest {
 
     function testFuzz_DeployOrgSwapAndDonateEth(
         bytes32 _orgId,
-        bytes32 _salt,
         address _sender,
         uint256 _donationAmount,
         uint256 _amountOut
@@ -143,13 +135,12 @@ contract OrgFundFactoryDeployOrgTest is OrgFundFactoryTest {
         // Enable Org donations with no fee.
         vm.prank(board);
         globalTestRegistry.setDefaultDonationFee(1, 0);
-        address _expectedAddress = orgFundFactory.computeOrgAddress(_salt);
+        address _expectedAddress = orgFundFactory.computeOrgAddress(_orgId);
 
         // Deploy, swap and donate.
         vm.prank(_sender);
         Org _org = orgFundFactory.deployOrgSwapAndDonate{value: _donationAmount}(
             _orgId,
-            _salt,
             mockSwapWrapper,
             0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE, // ETH Placeholder address
             _donationAmount,
@@ -164,7 +155,7 @@ contract OrgFundFactoryDeployOrgTest is OrgFundFactoryTest {
 
 contract OrgFundFactoryDeployFundTest is OrgFundFactoryTest {
     function testFuzz_DeployFund(address _manager, bytes32 _salt) public {
-        address _expectedContractAddress = orgFundFactory.computeFundAddress(_salt);
+        address _expectedContractAddress = orgFundFactory.computeFundAddress(_manager, _salt);
         vm.expectEmit(true, true, true, false);
         emit EntityDeployed(_expectedContractAddress, 2, _manager);
         Fund _fund = orgFundFactory.deployFund(_manager, _salt);
@@ -200,7 +191,7 @@ contract OrgFundFactoryDeployFundTest is OrgFundFactoryTest {
         OrgFundFactory orgFundFactory2 = new OrgFundFactory(globalTestRegistry);
         vm.prank(board);
         globalTestRegistry.setFactoryApproval(address(orgFundFactory2), true);
-        address _expectedContractAddress = orgFundFactory2.computeFundAddress(_salt);
+        address _expectedContractAddress = orgFundFactory2.computeFundAddress(_manager, _salt);
         vm.expectEmit(true, true, true, false);
         emit EntityDeployed(_expectedContractAddress, 2, _manager);
         Fund _fund = orgFundFactory2.deployFund(_manager, _salt);
@@ -220,7 +211,7 @@ contract OrgFundFactoryDeployFundTest is OrgFundFactoryTest {
         // Enable Fund donations with no fee.
         vm.prank(board);
         globalTestRegistry.setDefaultDonationFee(2, 0);
-        address _expectedAddress = orgFundFactory.computeFundAddress(_salt);
+        address _expectedAddress = orgFundFactory.computeFundAddress(_manager, _salt);
 
         // Deploy and donate.
         vm.prank(_sender);
@@ -250,17 +241,12 @@ contract OrgFundFactoryDeployFundTest is OrgFundFactoryTest {
         // Enable Fund donations with no fee.
         vm.prank(board);
         globalTestRegistry.setDefaultDonationFee(2, 0);
-        address _expectedAddress = orgFundFactory.computeFundAddress(_salt);
+        address _expectedAddress = orgFundFactory.computeFundAddress(_manager, _salt);
 
         // Deploy, swap and donate.
         vm.prank(_sender);
         Fund _fund = orgFundFactory.deployFundSwapAndDonate(
-            _manager,
-            _salt,
-            mockSwapWrapper,
-            address(testToken1),
-            _donationAmount,
-            ""
+            _manager, _salt, mockSwapWrapper, address(testToken1), _donationAmount, ""
         );
 
         assertEq(_expectedAddress, address(_fund));
@@ -285,7 +271,7 @@ contract OrgFundFactoryDeployFundTest is OrgFundFactoryTest {
         // Enable Fund donations with no fee.
         vm.prank(board);
         globalTestRegistry.setDefaultDonationFee(2, 0);
-        address _expectedAddress = orgFundFactory.computeFundAddress(_salt);
+        address _expectedAddress = orgFundFactory.computeFundAddress(_manager, _salt);
 
         // Deploy, swap and donate.
         vm.prank(_sender);

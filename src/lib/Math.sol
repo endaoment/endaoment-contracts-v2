@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: BSD 3-Claused
-pragma solidity ^0.8.12;
+// SPDX-License-Identifier: BSD 3-Clause
+pragma solidity 0.8.13;
 
 library Math {
     uint256 internal constant ZOC = 1e4;
@@ -40,19 +40,13 @@ library Math {
                     LOW LEVEL FIXED POINT OPERATIONS
     //////////////////////////////////////////////////////////////*/
 
-    function mulDivDown(
-        uint256 x,
-        uint256 y,
-        uint256 denominator
-    ) internal pure returns (uint256 z) {
+    function mulDivDown(uint256 x, uint256 y, uint256 denominator) internal pure returns (uint256 z) {
         assembly {
             // Store x * y in z for now.
             z := mul(x, y)
 
             // Equivalent to require(denominator != 0 && (x == 0 || (x * y) / x == y))
-            if iszero(and(iszero(iszero(denominator)), or(iszero(x), eq(div(z, x), y)))) {
-                revert(0, 0)
-            }
+            if iszero(and(iszero(iszero(denominator)), or(iszero(x), eq(div(z, x), y)))) { revert(0, 0) }
 
             // Divide z by the denominator.
             z := div(z, denominator)

@@ -1,30 +1,25 @@
-// SPDX-License-Identifier: BSD 3-Claused
+// SPDX-License-Identifier: BSD 3-Clause
 pragma solidity 0.8.13;
 
-import { DeployTest } from "./utils/DeployTest.sol";
-import { IERC20 } from "openzeppelin-contracts/contracts/interfaces/IERC20.sol";
-import { Merkle } from "murky/Merkle.sol";
-import { AtomicClaim } from "../AtomicClaim.sol";
-import { RollingMerkleDistributor, RollingMerkleDistributorTypes } from "../RollingMerkleDistributor.sol";
-import { RollingMerkleDistributorTest } from "./RollingMerkleDistributor.t.sol";
-import { Org } from "../Org.sol";
+import {DeployTest} from "./utils/DeployTest.sol";
+import {IERC20} from "openzeppelin-contracts/contracts/interfaces/IERC20.sol";
+import {Merkle} from "murky/Merkle.sol";
+import {AtomicClaim} from "../AtomicClaim.sol";
+import {RollingMerkleDistributor, RollingMerkleDistributorTypes} from "../RollingMerkleDistributor.sol";
+import {RollingMerkleDistributorTest} from "./RollingMerkleDistributor.t.sol";
+import {Org} from "../Org.sol";
 
 contract AtomicClaimTest is RollingMerkleDistributorTest {
-
     Org org;
     AtomicClaim atomicClaim;
 
     function setUp() public override {
         super.setUp();
-        org = orgFundFactory.deployOrg("1234-5678", "5417");
+        org = orgFundFactory.deployOrg("1234-5678");
         atomicClaim = new AtomicClaim();
     }
 
-    function testFuzz_CanMakeAtomicClaimForOrg(
-        address _sender,
-        uint256 _amount,
-        uint256 _seed
-    ) public {
+    function testFuzz_CanMakeAtomicClaimForOrg(address _sender, uint256 _amount, uint256 _seed) public {
         _amount = bound(_amount, 0, MAX_AMOUNT);
         vm.warp(baseDistributor.windowEnd() + 1);
 

@@ -1,12 +1,13 @@
-// SPDX-License-Identifier: BSD 3-Claused
+// SPDX-License-Identifier: BSD 3-Clause
 pragma solidity 0.8.13;
+
 import "./utils/DeployTest.sol";
-import { MockSwapperTestHarness } from "./utils/MockSwapperTestHarness.sol";
-import { Math } from "../lib/Math.sol";
-import { EntityInactive, InsufficientFunds, InvalidAction, InvalidTransferAttempt } from "../Entity.sol";
-import { OrgFundFactory } from "../OrgFundFactory.sol";
-import { Fund } from "../Fund.sol";
-import { Org } from "../Org.sol";
+import {MockSwapperTestHarness} from "./utils/MockSwapperTestHarness.sol";
+import {Math} from "../lib/Math.sol";
+import {EntityInactive, InsufficientFunds, InvalidAction} from "../Entity.sol";
+import {OrgFundFactory} from "../OrgFundFactory.sol";
+import {Fund} from "../Fund.sol";
+import {Org} from "../Org.sol";
 
 import "forge-std/Test.sol";
 
@@ -24,7 +25,7 @@ contract EntitySetManager is DeployTest {
         assertEq(_fund.manager(), _newManager);
     }
 
-    function testFuzz_SetManagerAsRole(address _newManager, uint _actor) public {
+    function testFuzz_SetManagerAsRole(address _newManager, uint256 _actor) public {
         address actor = actors[_actor % actors.length];
         Fund _fund = orgFundFactory.deployFund(self, "salt");
         vm.expectEmit(true, true, false, false);
@@ -43,6 +44,8 @@ contract EntitySetManager is DeployTest {
 }
 
 contract EntityHarness is MockSwapperTestHarness {
+    using Math for uint256;
+
     Entity receivingEntity;
 
     // local helper function to pick a receiving entity type for transfers, given an _entityType from the fuzzer
@@ -50,13 +53,29 @@ contract EntityHarness is MockSwapperTestHarness {
     function _deployEntity(uint8 _entityType, address _manager) internal returns (uint8) {
         uint8 _receivingType = uint8(bound(_entityType, OrgType, FundType));
         if (_receivingType == OrgType) {
-            receivingEntity = orgFundFactory.deployOrg("someReceivingOrgId", "salt");
+            receivingEntity = orgFundFactory.deployOrg("someReceivingOrgId");
             vm.prank(board);
             receivingEntity.setManager(_manager);
         } else {
             receivingEntity = orgFundFactory.deployFund(_manager, "salt");
         }
         return _receivingType;
+    }
+
+    /// @dev Internal helper method to calculate the fee on a base token amount for a given fee multiplier.
+    function _calculateFee(uint256 _amount, uint256 _feeMultiplier)
+        internal
+        pure
+        virtual
+        returns (uint256 _netAmount, uint256 _fee)
+    {
+        if (_feeMultiplier > Math.ZOC) revert InvalidAction();
+        unchecked {
+            // unchecked as no possibility of overflow with baseToken precision
+            _fee = _amount.zocmul(_feeMultiplier);
+            // unchecked as the _feeMultiplier check with revert above protects against overflow
+            _netAmount = _amount - _fee;
+        }
     }
 }
 
@@ -65,19 +84,31 @@ contract EntityHarness is MockSwapperTestHarness {
 //  to be tested and deploy their specific entity to be subjected to the tests.
 abstract contract EntityTokenTransactionTest is EntityHarness {
     using stdStorage for StdStorage;
+
     Entity entity;
     uint8 testEntityType;
     uint32 internal constant onePercentZoc = 100;
-    address[] public payoutActors = [board, capitalCommittee];
+    address[] public actors = [board, capitalCommittee];
 
-    event EntityDonationReceived(address indexed from, address indexed to, uint256 amount, uint256 fee);
-    event EntityFundsTransferred(address indexed from, address indexed to, uint256 amountReceived, uint256 amountFee);
+    event EntityDonationReceived(
+        address indexed from,
+        address indexed to,
+        address indexed tokenIn,
+        uint256 amountIn,
+        uint256 amountReceived,
+        uint256 amountFee
+    );
+
+    event EntityValueTransferred(address indexed from, address indexed to, uint256 amountReceived, uint256 amountFee);
     event EntityBalanceReconciled(address indexed entity, uint256 amountReceived, uint256 amountFee);
     event EntityBalanceCorrected(address indexed entity, uint256 newBalance);
-    event EntityFundsPaidOut(address indexed from, address indexed to, uint256 amountSent, uint256 amountFee);
+    event EntityValuePaidOut(address indexed from, address indexed to, uint256 amountSent, uint256 amountFee);
+    event EntityEthReceived(address indexed from, uint256 amount);
 
     // Test a normal donation to an entity from a donor.
-    function testFuzz_DonateSuccess(address _donor, uint256 _donationAmount, uint256 _feePercent, bool _isActive) public {
+    function testFuzz_DonateSuccess(address _donor, uint256 _donationAmount, uint256 _feePercent, bool _isActive)
+        public
+    {
         _donationAmount = bound(_donationAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         vm.assume(_donor != treasury);
         vm.assume(_donor != address(entity));
@@ -92,8 +123,10 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         _baseToken.approve(address(entity), _donationAmount);
         uint256 _amountFee = Math.zocmul(_donationAmount, _feePercent);
         uint256 _amountReceived = _donationAmount - _amountFee;
-        vm.expectEmit(true, true, false, true);
-        emit EntityDonationReceived(_donor, address(entity), _donationAmount, _amountFee);
+        vm.expectEmit(true, true, true, true);
+        emit EntityDonationReceived(
+            _donor, address(entity), address(_baseToken), _donationAmount, _donationAmount, _amountFee
+            );
         deal(address(_baseToken), _donor, _donationAmount);
         vm.prank(_donor);
         entity.donate(_donationAmount);
@@ -104,7 +137,12 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
     }
 
     // Test a donation with overrides to an entity from a donor.
-    function testFuzz_DonateWithOverridesSuccess(address _donor, uint256 _donationAmount, uint256 _feePercent, bool _isActive) public {
+    function testFuzz_DonateWithOverridesSuccess(
+        address _donor,
+        uint256 _donationAmount,
+        uint256 _feePercent,
+        bool _isActive
+    ) public {
         _donationAmount = bound(_donationAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         vm.assume(_donor != treasury);
         vm.assume(_donor != address(entity));
@@ -121,11 +159,38 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         _baseToken.approve(address(entity), _donationAmount);
         uint256 _amountFee = Math.zocmul(_donationAmount, _feePercent - onePercentZoc);
         uint256 _amountReceived = _donationAmount - _amountFee;
-        vm.expectEmit(true, true, false, true);
-        emit EntityDonationReceived(_donor, address(entity), _donationAmount, _amountFee);
+        vm.expectEmit(true, true, true, true);
+        emit EntityDonationReceived(
+            _donor, address(entity), address(_baseToken), _donationAmount, _donationAmount, _amountFee
+            );
         deal(address(_baseToken), _donor, _donationAmount);
         vm.prank(_donor);
         entity.donateWithOverrides(_donationAmount);
+        assertEq(_baseToken.balanceOf(_donor), 0);
+        assertEq(_baseToken.balanceOf(address(entity)), _amountReceived);
+        assertEq(entity.balance(), _amountReceived);
+        assertEq(_baseToken.balanceOf(treasury), _amountFee);
+    }
+
+    // Test a donation with overrides to an entity from a donor.
+    function testFuzz_DonateWithAdminOverridesSuccess(uint256 _donorIndex, uint256 _donationAmount, uint256 _feePercent)
+        public
+    {
+        address _donor = actors[_donorIndex % actors.length];
+        _donationAmount = bound(_donationAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
+        _feePercent = bound(_feePercent, 0, Math.ZOC);
+        ERC20 _baseToken = globalTestRegistry.baseToken();
+        deal(address(_baseToken), _donor, _donationAmount);
+        vm.prank(_donor);
+        _baseToken.approve(address(entity), _donationAmount);
+        (, uint256 _amountFee) = _calculateFee(_donationAmount, _feePercent);
+        uint256 _amountReceived = _donationAmount - _amountFee;
+        vm.expectEmit(true, true, true, true);
+        emit EntityDonationReceived(
+            _donor, address(entity), address(_baseToken), _donationAmount, _donationAmount, _amountFee
+            );
+        vm.prank(_donor);
+        entity.donateWithAdminOverrides(_donationAmount, uint32(_feePercent));
         assertEq(_baseToken.balanceOf(_donor), 0);
         assertEq(_baseToken.balanceOf(address(entity)), _amountReceived);
         assertEq(entity.balance(), _amountReceived);
@@ -152,11 +217,30 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         entity.donateWithOverrides(_donationAmount);
     }
 
+    // Test that an unauthorized role cannot donate with admin feeOverrides.
+    function testFuzz_DonateWithAdminOverridesFailUnauthorized(
+        address _donor,
+        uint256 _donationAmount,
+        uint32 _feeAmount
+    ) public {
+        vm.assume(_donor != board);
+        vm.assume(_donor != capitalCommittee);
+        vm.expectRevert(Unauthorized.selector);
+        vm.prank(_donor);
+        entity.donateWithAdminOverrides(_donationAmount, _feeAmount);
+    }
+
     // Test a valid payout from an entity to an address
-    function testFuzz_PayoutSuccess(address _receiver, uint256 _amount, uint256 _feePercent, uint _actorIndex, bool _isActive) public {
+    function testFuzz_PayoutSuccess(
+        address _receiver,
+        uint256 _amount,
+        uint256 _feePercent,
+        uint256 _actorIndex,
+        bool _isActive
+    ) public {
         vm.assume(address(entity) != _receiver);
         vm.assume(treasury != _receiver);
-        address _actor = payoutActors[_actorIndex % payoutActors.length];
+        address _actor = actors[_actorIndex % actors.length];
         _amount = bound(_amount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _feePercent = bound(_feePercent, 0, Math.ZOC);
         // preset the requested amount of basetokens into the entity
@@ -169,7 +253,7 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         uint256 _amountFee = Math.zocmul(_amount, _feePercent);
         uint256 _amountSent = _amount - _amountFee;
         vm.expectEmit(true, true, false, true);
-        emit EntityFundsPaidOut(address(entity), _receiver, _amount, _amountFee);
+        emit EntityValuePaidOut(address(entity), _receiver, _amount, _amountFee);
         vm.prank(_actor);
         entity.payout(_receiver, _amount);
         assertEq(_baseToken.balanceOf(address(entity)), 0);
@@ -179,10 +263,16 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
     }
 
     // Test a valid payout with sender override from an entity to an address
-    function testFuzz_PayoutWithOverridesSuccess(address _receiver, uint256 _amount, uint256 _feePercent, uint _actorIndex, bool _isActive) public {
+    function testFuzz_PayoutWithOverridesSuccess(
+        address _receiver,
+        uint256 _amount,
+        uint256 _feePercent,
+        uint256 _actorIndex,
+        bool _isActive
+    ) public {
         vm.assume(address(entity) != _receiver);
         vm.assume(treasury != _receiver);
-        address _actor = payoutActors[_actorIndex % payoutActors.length];
+        address _actor = actors[_actorIndex % actors.length];
         _amount = bound(_amount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _feePercent = bound(_feePercent, onePercentZoc, Math.ZOC);
         // preset the requested amount of basetokens into the entity
@@ -196,7 +286,7 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         uint256 _amountFee = Math.zocmul(_amount, _feePercent - onePercentZoc);
         uint256 _amountSent = _amount - _amountFee;
         vm.expectEmit(true, true, false, true);
-        emit EntityFundsPaidOut(address(entity), _receiver, _amount, _amountFee);
+        emit EntityValuePaidOut(address(entity), _receiver, _amount, _amountFee);
         vm.prank(_actor);
         entity.payoutWithOverrides(_receiver, _amount);
         assertEq(_baseToken.balanceOf(address(entity)), 0);
@@ -205,9 +295,30 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         assertEq(_baseToken.balanceOf(treasury), _amountFee);
     }
 
+    // Test a valid payout with admin override from an entity to an address
+    function testFuzz_PayoutWithAdminOverridesSuccess(address _receiver, uint256 _amount, uint256 _feePercent) public {
+        vm.assume(address(entity) != _receiver);
+        vm.assume(treasury != _receiver);
+        _amount = bound(_amount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
+        _feePercent = bound(_feePercent, 0, Math.ZOC);
+        // preset the requested amount of basetokens into the entity
+        _setEntityBalance(entity, _amount);
+        ERC20 _baseToken = globalTestRegistry.baseToken();
+        (, uint256 _amountFee) = _calculateFee(_amount, _feePercent);
+        uint256 _amountSent = _amount - _amountFee;
+        vm.expectEmit(true, true, false, true);
+        emit EntityValuePaidOut(address(entity), _receiver, _amount, _amountFee);
+        vm.prank(board);
+        entity.payoutWithAdminOverrides(_receiver, _amount, uint32(_feePercent));
+        assertEq(_baseToken.balanceOf(address(entity)), 0);
+        assertEq(entity.balance(), 0);
+        assertEq(_baseToken.balanceOf(address(_receiver)), _amountSent);
+        assertEq(_baseToken.balanceOf(treasury), _amountFee);
+    }
+
     // Test that a payout fails when the default payout fee has been set to disallow it.
-    function testFuzz_PayoutFailInvalidAction(address _receiver, uint256 _amount, uint _actorIndex) public {
-        address _actor = payoutActors[_actorIndex % payoutActors.length];
+    function testFuzz_PayoutFailInvalidAction(address _receiver, uint256 _amount, uint256 _actorIndex) public {
+        address _actor = actors[_actorIndex % actors.length];
         _amount = bound(_amount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         // preset the requested amount of basetokens into the entity
         _setEntityBalance(entity, _amount);
@@ -223,8 +334,8 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
     }
 
     // Test that a payout fails when the caller is not authorized.
-    function testFuzz_PayoutFailUnauthorized(address _receiver, uint256 _amount, uint _actorIndex) public {
-        address _actor = payoutActors[_actorIndex % payoutActors.length];
+    function testFuzz_PayoutFailUnauthorized(address _receiver, uint256 _amount, uint256 _actorIndex) public {
+        address _actor = actors[_actorIndex % actors.length];
         _amount = bound(_amount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         // preset the requested amount of basetokens into the entity
         _setEntityBalance(entity, _amount);
@@ -240,8 +351,8 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
     }
 
     // Test that a payout fails when the source entity of the transfer has insufficient funds.
-    function testFuzz_PayoutFailInsufficientFunds(address _receiver, uint256 _amount, uint _actorIndex) public {
-        address _actor = payoutActors[_actorIndex % payoutActors.length];
+    function testFuzz_PayoutFailInsufficientFunds(address _receiver, uint256 _amount, uint256 _actorIndex) public {
+        address _actor = actors[_actorIndex % actors.length];
         _amount = bound(_amount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         // set the default payout fee for the entity type to the max to disallow the payout
         vm.prank(board);
@@ -252,8 +363,10 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
     }
 
     // Test that a payout with override fails when the default payout fee has been set to disallow it.
-    function testFuzz_PayoutWithOverridesFailInvalidAction(address _receiver, uint256 _amount, uint _actorIndex) public {
-        address _actor = payoutActors[_actorIndex % payoutActors.length];
+    function testFuzz_PayoutWithOverridesFailInvalidAction(address _receiver, uint256 _amount, uint256 _actorIndex)
+        public
+    {
+        address _actor = actors[_actorIndex % actors.length];
         _amount = bound(_amount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         // preset the requested amount of basetokens into the entity
         _setEntityBalance(entity, _amount);
@@ -269,8 +382,10 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
     }
 
     // Test that a payout with override fails when the caller is not authorized.
-    function testFuzz_PayoutWithOverridesFailUnauthorized(address _receiver, uint256 _amount, uint _actorIndex) public {
-        address _actor = payoutActors[_actorIndex % payoutActors.length];
+    function testFuzz_PayoutWithOverridesFailUnauthorized(address _receiver, uint256 _amount, uint256 _actorIndex)
+        public
+    {
+        address _actor = actors[_actorIndex % actors.length];
         _amount = bound(_amount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         // preset the requested amount of basetokens into the entity
         _setEntityBalance(entity, _amount);
@@ -286,19 +401,49 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
     }
 
     // Test that a payout with fails when the source entity of the transfer has insufficient funds.
-    function testFuzz_PayoutWithOverridesFailInsufficientFunds(address _receiver, uint256 _amount, uint _actorIndex) public {
-        address _actor = payoutActors[_actorIndex % payoutActors.length];
+    function testFuzz_PayoutWithOverridesFailInsufficientFunds(address _receiver, uint256 _amount, uint256 _actorIndex)
+        public
+    {
+        address _actor = actors[_actorIndex % actors.length];
         _amount = bound(_amount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         // set the default payout fee for the entity type to the max to disallow the payout
         vm.prank(board);
-        globalTestRegistry.setDefaultPayoutFee(testEntityType, onePercentZoc);
+        globalTestRegistry.setDefaultPayoutFee(testEntityType, 0);
         vm.expectRevert(InsufficientFunds.selector);
         vm.prank(_actor);
         entity.payoutWithOverrides(_receiver, _amount);
     }
 
+    // Test that a payout with admin override fails when the caller is not authorized.
+    function testFuzz_PayoutWithAdminOverridesFailUnauthorized(address _caller, address _receiver, uint256 _amount)
+        public
+    {
+        vm.assume(_caller != board);
+        vm.assume(_caller != capitalCommittee);
+        _amount = bound(_amount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
+        // preset the requested amount of basetokens into the entity
+        _setEntityBalance(entity, _amount);
+        vm.expectRevert(Unauthorized.selector);
+        vm.prank(_caller);
+        entity.payoutWithAdminOverrides(_receiver, _amount, 0);
+    }
+
+    // Test that a payout with fails when the source entity of the transfer has insufficient funds.
+    function testFuzz_PayoutWithAdminOverridesFailInsufficientFunds(address _receiver, uint256 _amount) public {
+        _amount = bound(_amount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
+        vm.expectRevert(InsufficientFunds.selector);
+        vm.prank(board);
+        entity.payoutWithAdminOverrides(_receiver, _amount, 0);
+    }
+
     // Test a valid transfer between 2 entities
-    function testFuzz_TransferSuccess(address _manager, uint256 _amount, uint256 _feePercent, address _receivingManager, uint8 _receivingEntityTypeIndex) public {
+    function testFuzz_TransferSuccess(
+        address _manager,
+        uint256 _amount,
+        uint256 _feePercent,
+        address _receivingManager,
+        uint8 _receivingEntityTypeIndex
+    ) public {
         _amount = bound(_amount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _feePercent = bound(_feePercent, 0, Math.ZOC);
         // get the receiving entity type from the fuzzed parameter
@@ -318,9 +463,9 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         uint256 _amountFee = Math.zocmul(_amount, _feePercent);
         uint256 _amountReceived = _amount - _amountFee;
         vm.expectEmit(true, true, false, true);
-        emit EntityFundsTransferred(address(entity), address(receivingEntity), _amount, _amountFee);
+        emit EntityValueTransferred(address(entity), address(receivingEntity), _amount, _amountFee);
         vm.prank(_manager);
-        entity.transfer(receivingEntity, _amount);
+        entity.transferToEntity(receivingEntity, _amount);
         assertEq(_baseToken.balanceOf(address(entity)), 0);
         assertEq(entity.balance(), 0);
         assertEq(_baseToken.balanceOf(address(receivingEntity)), _amountReceived);
@@ -329,7 +474,13 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
     }
 
     // Test a valid transfer with sender override between 2 entities
-    function testFuzz_TransferWithSenderOverrideSuccess(address _manager, uint256 _amount, uint256 _feePercent, address _receivingManager, uint8 _receivingEntityTypeIndex) public {
+    function testFuzz_TransferWithSenderOverrideSuccess(
+        address _manager,
+        uint256 _amount,
+        uint256 _feePercent,
+        address _receivingManager,
+        uint8 _receivingEntityTypeIndex
+    ) public {
         _amount = bound(_amount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _feePercent = bound(_feePercent, onePercentZoc, Math.ZOC);
         // get the receiving entity type from the fuzzed parameter
@@ -351,9 +502,9 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         uint256 _amountFee = Math.zocmul(_amount, _feePercent - onePercentZoc);
         uint256 _amountReceived = _amount - _amountFee;
         vm.expectEmit(true, true, false, true);
-        emit EntityFundsTransferred(address(entity), address(receivingEntity), _amount, _amountFee);
+        emit EntityValueTransferred(address(entity), address(receivingEntity), _amount, _amountFee);
         vm.prank(_manager);
-        entity.transferWithOverrides(receivingEntity, _amount);
+        entity.transferToEntityWithOverrides(receivingEntity, _amount);
         assertEq(_baseToken.balanceOf(address(entity)), 0);
         assertEq(entity.balance(), 0);
         assertEq(_baseToken.balanceOf(address(receivingEntity)), _amountReceived);
@@ -362,7 +513,13 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
     }
 
     // Test a valid transfer with receiver override between 2 entities
-    function testFuzz_TransferWithReceiverOverrideSuccess(address _manager, uint256 _amount, uint256 _feePercent, address _receivingManager, uint8 _receivingEntityTypeIndex) public {
+    function testFuzz_TransferWithReceiverOverrideSuccess(
+        address _manager,
+        uint256 _amount,
+        uint256 _feePercent,
+        address _receivingManager,
+        uint8 _receivingEntityTypeIndex
+    ) public {
         _amount = bound(_amount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _feePercent = bound(_feePercent, onePercentZoc, Math.ZOC);
         // get the receiving entity type from the fuzzed parameter
@@ -376,7 +533,9 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         // set the default transfer fee between the 2 entity types to some percentage between 1 and 100 percent
         globalTestRegistry.setDefaultTransferFee(testEntityType, _receivingType, uint32(_feePercent));
         // set the receiver override fee for the transfer to one less that the default transfer fee
-        globalTestRegistry.setTransferFeeReceiverOverride(testEntityType, receivingEntity, uint32(_feePercent - onePercentZoc));
+        globalTestRegistry.setTransferFeeReceiverOverride(
+            testEntityType, receivingEntity, uint32(_feePercent - onePercentZoc)
+        );
         entity.setManager(_manager);
         globalTestRegistry.setEntityStatus(entity, true);
         globalTestRegistry.setEntityStatus(receivingEntity, true);
@@ -384,9 +543,36 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         uint256 _amountFee = Math.zocmul(_amount, _feePercent - onePercentZoc);
         uint256 _amountReceived = _amount - _amountFee;
         vm.expectEmit(true, true, false, true);
-        emit EntityFundsTransferred(address(entity), address(receivingEntity), _amount, _amountFee);
+        emit EntityValueTransferred(address(entity), address(receivingEntity), _amount, _amountFee);
         vm.prank(_manager);
-        entity.transferWithOverrides(receivingEntity, _amount);
+        entity.transferToEntityWithOverrides(receivingEntity, _amount);
+        assertEq(_baseToken.balanceOf(address(entity)), 0);
+        assertEq(entity.balance(), 0);
+        assertEq(_baseToken.balanceOf(address(receivingEntity)), _amountReceived);
+        assertEq(receivingEntity.balance(), _amountReceived);
+        assertEq(_baseToken.balanceOf(treasury), _amountFee);
+    }
+
+    // Test a valid transfer with admin override between 2 entities
+    function testFuzz_TransferToEntityWithAdminOverridesSuccess(
+        uint256 _amount,
+        uint256 _feePercent,
+        address _receivingManager,
+        uint8 _receivingEntityTypeIndex
+    ) public {
+        _amount = bound(_amount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
+        _feePercent = bound(_feePercent, 0, Math.ZOC);
+        // get the receiving entity type from the fuzzed parameter
+        _deployEntity(_receivingEntityTypeIndex, _receivingManager);
+        // preset the requested amount of basetokens into the entity
+        _setEntityBalance(entity, _amount);
+        ERC20 _baseToken = globalTestRegistry.baseToken();
+        (, uint256 _amountFee) = _calculateFee(_amount, _feePercent);
+        uint256 _amountReceived = _amount - _amountFee;
+        vm.expectEmit(true, true, false, true);
+        emit EntityValueTransferred(address(entity), address(receivingEntity), _amount, _amountFee);
+        vm.prank(board);
+        entity.transferToEntityWithAdminOverrides(receivingEntity, _amount, uint32(_feePercent));
         assertEq(_baseToken.balanceOf(address(entity)), 0);
         assertEq(entity.balance(), 0);
         assertEq(_baseToken.balanceOf(address(receivingEntity)), _amountReceived);
@@ -395,7 +581,11 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
     }
 
     // Test that a transfer fails when the default transfer fee between the 2 entities has been set to disallow it.
-    function testFuzz_TransferFailInvalidAction(address _manager, address _receivingManager, uint8 _receivingEntityTypeIndex) public {
+    function testFuzz_TransferFailInvalidAction(
+        address _manager,
+        address _receivingManager,
+        uint8 _receivingEntityTypeIndex
+    ) public {
         uint8 _receivingType = _deployEntity(_receivingEntityTypeIndex, _receivingManager);
         _setEntityBalance(entity, 10);
         vm.startPrank(board);
@@ -407,11 +597,13 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         vm.stopPrank();
         vm.expectRevert(InvalidAction.selector);
         vm.prank(_manager);
-        entity.transfer(receivingEntity, 1);
+        entity.transferToEntity(receivingEntity, 1);
     }
 
     // Test that a transfer fails from an inactive Entity
-    function testFuzz_TransferFailInactive(address _manager, address _receivingManager, uint8 _receivingEntityTypeIndex) public {
+    function testFuzz_TransferFailInactive(address _manager, address _receivingManager, uint8 _receivingEntityTypeIndex)
+        public
+    {
         uint8 _receivingType = _deployEntity(_receivingEntityTypeIndex, _receivingManager);
         vm.startPrank(board);
         entity.setManager(_manager);
@@ -421,11 +613,15 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         vm.stopPrank();
         vm.prank(_manager);
         vm.expectRevert(abi.encodeWithSelector(EntityInactive.selector));
-        entity.transfer(receivingEntity, 1);
+        entity.transferToEntity(receivingEntity, 1);
     }
 
     // Test that a transfer fails to an inactive Entity
-    function testFuzz_TransferFailInactiveDestination(address _manager, address _receivingManager, uint8 _receivingEntityTypeIndex) public {
+    function testFuzz_TransferFailInactiveDestination(
+        address _manager,
+        address _receivingManager,
+        uint8 _receivingEntityTypeIndex
+    ) public {
         uint8 _receivingType = _deployEntity(_receivingEntityTypeIndex, _receivingManager);
         vm.startPrank(board);
         entity.setManager(_manager);
@@ -435,11 +631,16 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         vm.stopPrank();
         vm.prank(_manager);
         vm.expectRevert(abi.encodeWithSelector(EntityInactive.selector));
-        entity.transfer(receivingEntity, 1);
+        entity.transferToEntity(receivingEntity, 1);
     }
 
     // Test that a transfer fails when the caller is not authorized
-    function testFuzz_TransferFailUnauthorized(address _caller, address _manager, address _receivingManager, uint8 _receivingEntityTypeIndex) public {
+    function testFuzz_TransferFailUnauthorized(
+        address _caller,
+        address _manager,
+        address _receivingManager,
+        uint8 _receivingEntityTypeIndex
+    ) public {
         vm.assume(_caller != _manager);
         vm.assume(_caller != board);
         vm.assume(_caller != capitalCommittee);
@@ -453,11 +654,15 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         vm.stopPrank();
         vm.expectRevert(abi.encodeWithSelector(Unauthorized.selector));
         vm.prank(_caller);
-        entity.transfer(receivingEntity, 1);
+        entity.transferToEntity(receivingEntity, 1);
     }
 
     // Test that a transfer fails when the source entity of the transfer has insufficient funds
-    function testFuzz_TransferFailInsufficientFunds(address _manager, address _receivingManager, uint8 _receivingEntityTypeIndex) public {
+    function testFuzz_TransferFailInsufficientFunds(
+        address _manager,
+        address _receivingManager,
+        uint8 _receivingEntityTypeIndex
+    ) public {
         uint8 _receivingType = _deployEntity(_receivingEntityTypeIndex, _receivingManager);
         vm.startPrank(board);
         entity.setManager(_manager);
@@ -467,11 +672,15 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         vm.stopPrank();
         vm.prank(_manager);
         vm.expectRevert(abi.encodeWithSelector(InsufficientFunds.selector));
-        entity.transfer(receivingEntity, 1);
+        entity.transferToEntity(receivingEntity, 1);
     }
 
     // Test that a transfer with overrides fails when the default transfer fee between the 2 entities has been set to disallow it.
-    function testFuzz_TransferWithOverridesFailInvalidAction(address _manager, address _receivingManager, uint8 _receivingEntityTypeIndex) public {
+    function testFuzz_TransferToEntityWithOverridesFailInvalidAction(
+        address _manager,
+        address _receivingManager,
+        uint8 _receivingEntityTypeIndex
+    ) public {
         uint8 _receivingType = _deployEntity(_receivingEntityTypeIndex, _receivingManager);
         _setEntityBalance(entity, 10);
         vm.startPrank(board);
@@ -483,11 +692,15 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         vm.stopPrank();
         vm.expectRevert(InvalidAction.selector);
         vm.prank(_manager);
-        entity.transferWithOverrides(receivingEntity, 1);
+        entity.transferToEntityWithOverrides(receivingEntity, 1);
     }
 
     // Test that a transfer with overrides fails from an inactive Entity
-    function testFuzz_TransferWithOverridesFailInactive(address _manager, address _receivingManager, uint8 _receivingEntityTypeIndex) public {
+    function testFuzz_TransferToEntityWithOverridesFailInactive(
+        address _manager,
+        address _receivingManager,
+        uint8 _receivingEntityTypeIndex
+    ) public {
         uint8 _receivingType = _deployEntity(_receivingEntityTypeIndex, _receivingManager);
         vm.startPrank(board);
         entity.setManager(_manager);
@@ -497,11 +710,16 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         vm.stopPrank();
         vm.prank(_manager);
         vm.expectRevert(abi.encodeWithSelector(EntityInactive.selector));
-        entity.transferWithOverrides(receivingEntity, 1);
+        entity.transferToEntityWithOverrides(receivingEntity, 1);
     }
 
     // Test that a transfer with overrides fails when the caller is not authorized
-    function testFuzz_TransferWithOverridesFailUnauthorized(address _caller, address _manager, address _receivingManager, uint8 _receivingEntityTypeIndex) public {
+    function testFuzz_TransferToEntityWithOverridesFailUnauthorized(
+        address _caller,
+        address _manager,
+        address _receivingManager,
+        uint8 _receivingEntityTypeIndex
+    ) public {
         vm.assume(_caller != _manager);
         vm.assume(_caller != board);
         vm.assume(_caller != capitalCommittee);
@@ -515,11 +733,15 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         vm.stopPrank();
         vm.expectRevert(abi.encodeWithSelector(Unauthorized.selector));
         vm.prank(_caller);
-        entity.transferWithOverrides(receivingEntity, 1);
+        entity.transferToEntityWithOverrides(receivingEntity, 1);
     }
 
     // Test that a transfer with overrides fails when the source entity of the transfer has insufficient funds
-    function testFuzz_TransferWithOverridesFailInsufficientFunds(address _manager, address _receivingManager, uint8 _receivingEntityTypeIndex) public {
+    function testFuzz_TransferToEntityWithOverridesFailInsufficientFunds(
+        address _manager,
+        address _receivingManager,
+        uint8 _receivingEntityTypeIndex
+    ) public {
         uint8 _receivingType = _deployEntity(_receivingEntityTypeIndex, _receivingManager);
         vm.startPrank(board);
         entity.setManager(_manager);
@@ -529,20 +751,65 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         vm.stopPrank();
         vm.prank(_manager);
         vm.expectRevert(abi.encodeWithSelector(InsufficientFunds.selector));
-        entity.transferWithOverrides(receivingEntity, 1);
+        entity.transferToEntityWithOverrides(receivingEntity, 1);
+    }
+
+    // Test that a transfer with admin overrides fails from an inactive Entity
+    function testFuzz_TransferToEntityWithAdminOverridesFailInactive(
+        address _receivingManager,
+        uint8 _receivingEntityTypeIndex
+    ) public {
+        _deployEntity(_receivingEntityTypeIndex, _receivingManager);
+        vm.startPrank(board);
+        globalTestRegistry.setEntityStatus(entity, false);
+        vm.stopPrank();
+        vm.prank(board);
+        vm.expectRevert(abi.encodeWithSelector(EntityInactive.selector));
+        entity.transferToEntityWithAdminOverrides(receivingEntity, 1, 0);
+    }
+
+    // Test that a transfer with admin overrides fails when the caller is not authorized
+    function testFuzz_TransferToEntityWithAdminOverridesFailUnauthorized(
+        address _caller,
+        address _receivingManager,
+        uint8 _receivingEntityTypeIndex
+    ) public {
+        vm.assume(_caller != board);
+        vm.assume(_caller != capitalCommittee);
+        _deployEntity(_receivingEntityTypeIndex, _receivingManager);
+        _setEntityBalance(entity, 10);
+        vm.expectRevert(abi.encodeWithSelector(Unauthorized.selector));
+        vm.prank(_caller);
+        entity.transferToEntityWithAdminOverrides(receivingEntity, 1, 0);
+    }
+
+    // Test that a transfer with admin overrides fails when the source entity of the transfer has insufficient funds
+    function testFuzz_TransferToEntityWithAdminOverridesFailInsufficientFunds(
+        address _receivingManager,
+        uint8 _receivingEntityTypeIndex
+    ) public {
+        _deployEntity(_receivingEntityTypeIndex, _receivingManager);
+        vm.prank(board);
+        vm.expectRevert(abi.encodeWithSelector(InsufficientFunds.selector));
+        entity.transferToEntityWithAdminOverrides(receivingEntity, 1, 0);
     }
 
     // Test that the receiveTransfer function fails if not called by another entity.
     // The 'happy path' of receiveTransfer function testing is performed above in testFuzz_TransferSuccess.
-    function testFuzz_ReceiveTransferFailInvalidTransferAttempt(uint256 _transferAmount) public {
-        vm.expectRevert(InvalidTransferAttempt.selector);
+    function testFuzz_ReceiveTransferFailEntityInactive(uint256 _transferAmount) public {
+        vm.expectRevert(EntityInactive.selector);
         vm.prank(board);
         entity.receiveTransfer(_transferAmount);
     }
 
     // Test that the reconcileBalance function sweeps 'rogue' baseTokens that have been deposited into the entity contract balance,
     //  and updates the balance (less default fee) and verifies that the fee has been taken from the swept amount and deposited to the treasury
-    function testFuzz_ReconcileBalanceSuccess(address _manager, uint256 _balanceAmount, uint256 _sweepAmount, uint256 _feePercent) public {
+    function testFuzz_ReconcileBalanceSuccess(
+        address _manager,
+        uint256 _balanceAmount,
+        uint256 _sweepAmount,
+        uint256 _feePercent
+    ) public {
         _balanceAmount = bound(_balanceAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _sweepAmount = bound(_sweepAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _feePercent = bound(_feePercent, 0, Math.ZOC);
@@ -559,7 +826,7 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         uint256 _amountFee = Math.zocmul(_sweepAmount, _feePercent);
         uint256 _amountReceived = _sweepAmount - _amountFee;
         vm.startPrank(_manager);
-        _baseToken.approve(address(entity),  _balanceAmount + _sweepAmount);
+        _baseToken.approve(address(entity), _balanceAmount + _sweepAmount);
         vm.expectEmit(true, false, false, true);
         emit EntityBalanceReconciled(address(entity), _sweepAmount, _amountFee);
         entity.reconcileBalance();
@@ -570,7 +837,12 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
 
     // Test that the reconcileBalance function sweeps 'rogue' baseTokens that have been deposited into the entity contract balance,
     //  and updates the balance (less override fee) and verifies that the fee has been taken from the swept amount and deposited to the treasury
-    function testFuzz_ReconcileBalanceWithOverrideSuccess(address _manager, uint256 _balanceAmount, uint256 _sweepAmount, uint256 _feePercent) public {
+    function testFuzz_ReconcileBalanceWithOverrideSuccess(
+        address _manager,
+        uint256 _balanceAmount,
+        uint256 _sweepAmount,
+        uint256 _feePercent
+    ) public {
         _balanceAmount = bound(_balanceAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _sweepAmount = bound(_sweepAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _feePercent = bound(_feePercent, onePercentZoc, Math.ZOC);
@@ -589,7 +861,7 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         uint256 _amountFee = Math.zocmul(_sweepAmount, _feePercent - onePercentZoc);
         uint256 _amountReceived = _sweepAmount - _amountFee;
         vm.startPrank(_manager);
-        _baseToken.approve(address(entity),  _balanceAmount + _sweepAmount);
+        _baseToken.approve(address(entity), _balanceAmount + _sweepAmount);
         vm.expectEmit(true, false, false, true);
         emit EntityBalanceReconciled(address(entity), _sweepAmount, _amountFee);
         entity.reconcileBalance();
@@ -599,7 +871,9 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
     }
 
     // Test that the reconcileBalance function emits an appropriate event when there are no 'rogue' baseTokens to be swept into the contract balance.
-    function testFuzz_ReconcileBalanceSuccessNoTokens(address _manager, uint256 _balanceAmount, uint256 _feePercent) public {
+    function testFuzz_ReconcileBalanceSuccessNoTokens(address _manager, uint256 _balanceAmount, uint256 _feePercent)
+        public
+    {
         _balanceAmount = bound(_balanceAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _feePercent = bound(_feePercent, 0, Math.ZOC);
         vm.startPrank(board);
@@ -620,7 +894,7 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
     }
 
     // Test that the reconcileBalance function emits an appropriate event when the contract balance is more than the token balance, and is corrected.
-    function testFuzz_ReconcileBalanceSuccessWithCorrection(address _manager, uint256 _balanceAmount, uint256 _overageAmount) public {
+    function testFuzz_ReconcileBalanceSuccessWithCorrection(uint256 _balanceAmount, uint256 _overageAmount) public {
         _balanceAmount = bound(_balanceAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _overageAmount = bound(_overageAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
 
@@ -635,7 +909,9 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
     }
 
     // Test that the reconcileBalance function fails when the entity donations disallowed via default donation fee setting.
-    function testFuzz_ReconcileBalanceFailInvalidAction(address _manager, uint256 _balanceAmount, uint256 _sweepAmount) public {
+    function testFuzz_ReconcileBalanceFailInvalidAction(address _manager, uint256 _balanceAmount, uint256 _sweepAmount)
+        public
+    {
         _balanceAmount = bound(_balanceAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _sweepAmount = bound(_sweepAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         vm.startPrank(board);
@@ -649,7 +925,7 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         // update the token balance to be more than the entity balance so the sweep can be attempted
         deal(address(_baseToken), address(entity), _balanceAmount + _sweepAmount);
         vm.startPrank(_manager);
-        _baseToken.approve(address(entity),  _balanceAmount + _sweepAmount);
+        _baseToken.approve(address(entity), _balanceAmount + _sweepAmount);
         vm.expectRevert(InvalidAction.selector);
         entity.reconcileBalance();
         vm.stopPrank();
@@ -662,10 +938,7 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         uint256 _feePercent,
         bool _isActive
     ) public {
-        vm.assume(
-            _donor != treasury &&
-            _donor != address(entity)
-        );
+        vm.assume(_donor != treasury && _donor != address(entity));
 
         _donationAmount = bound(_donationAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _amountOut = bound(_amountOut, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
@@ -689,7 +962,9 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
 
         // Perform swap and donate.
         vm.expectEmit(true, true, true, true);
-        emit EntityDonationReceived(_donor, address(entity), mockSwapWrapper.amountOut(), _expectedFee);
+        emit EntityDonationReceived(
+            _donor, address(entity), address(testToken1), _donationAmount, mockSwapWrapper.amountOut(), _expectedFee
+            );
         vm.prank(_donor);
         entity.swapAndDonate(mockSwapWrapper, address(testToken1), _donationAmount, "");
 
@@ -705,10 +980,7 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         uint256 _feePercent,
         bool _isActive
     ) public {
-        vm.assume(
-            _donor != treasury &&
-            _donor != address(entity)
-        );
+        vm.assume(_donor != treasury && _donor != address(entity));
 
         _donationAmount = bound(_donationAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _amountOut = bound(_amountOut, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
@@ -730,14 +1002,16 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
 
         // Perform swap and donate.
         vm.expectEmit(false, true, true, true); // TODO: WHY IS THIS FAILING IF I MAKE IT TRUE?
-        emit EntityDonationReceived(_donor, address(entity), mockSwapWrapper.amountOut(), _expectedFee);
-        vm.prank(_donor);
-        entity.swapAndDonate{value: _donationAmount}(
-            mockSwapWrapper,
+        emit EntityDonationReceived(
+            _donor,
+            address(entity),
             entity.ETH_PLACEHOLDER(),
             _donationAmount,
-            ""
-        );
+            mockSwapWrapper.amountOut(),
+            _expectedFee
+            );
+        vm.prank(_donor);
+        entity.swapAndDonate{value: _donationAmount}(mockSwapWrapper, entity.ETH_PLACEHOLDER(), _donationAmount, "");
 
         assertEq(baseToken.balanceOf(address(entity)), _expectedReceived);
         assertEq(entity.balance(), _expectedReceived);
@@ -751,10 +1025,7 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         uint256 _feePercent,
         bool _isActive
     ) public {
-        vm.assume(
-            _donor != treasury &&
-            _donor != address(entity)
-        );
+        vm.assume(_donor != treasury && _donor != address(entity));
 
         _donationAmount = bound(_donationAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _amountOut = bound(_amountOut, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
@@ -787,10 +1058,7 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         uint256 _feePercent,
         bool _isActive
     ) public {
-        vm.assume(
-            _donor != treasury &&
-            _donor != address(entity)
-        );
+        vm.assume(_donor != treasury && _donor != address(entity));
 
         _donationAmount = bound(_donationAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _amountOut = bound(_amountOut, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
@@ -817,7 +1085,9 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
 
         // Perform swap and donate.
         vm.expectEmit(true, true, true, true);
-        emit EntityDonationReceived(_donor, address(entity), mockSwapWrapper.amountOut(), _expectedFee);
+        emit EntityDonationReceived(
+            _donor, address(entity), address(testToken1), _donationAmount, mockSwapWrapper.amountOut(), _expectedFee
+            );
         vm.prank(_donor);
         entity.swapAndDonateWithOverrides(mockSwapWrapper, address(testToken1), _donationAmount, "");
 
@@ -833,10 +1103,7 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         uint256 _feePercent,
         bool _isActive
     ) public {
-        vm.assume(
-            _donor != treasury &&
-            _donor != address(entity)
-        );
+        vm.assume(_donor != treasury && _donor != address(entity));
 
         _donationAmount = bound(_donationAmount, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
         _amountOut = bound(_amountOut, MIN_ENTITY_TRANSACTION_AMOUNT, MAX_ENTITY_TRANSACTION_AMOUNT);
@@ -861,7 +1128,14 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
 
         // Perform swap and donate.
         vm.expectEmit(true, true, true, true);
-        emit EntityDonationReceived(_donor, address(entity), mockSwapWrapper.amountOut(), _expectedFee);
+        emit EntityDonationReceived(
+            _donor,
+            address(entity),
+            entity.ETH_PLACEHOLDER(),
+            _donationAmount,
+            mockSwapWrapper.amountOut(),
+            _expectedFee
+            );
         vm.prank(_donor);
         entity.swapAndDonateWithOverrides{value: _donationAmount}(
             mockSwapWrapper,
@@ -896,7 +1170,7 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         // Mint some test tokens directly to the entity.
         testToken1.mint(address(entity), _sweepAmount);
 
-         // Calculate expected results.
+        // Calculate expected results.
         uint256 _expectedFee = Math.zocmul(mockSwapWrapper.amountOut(), _feePercent);
         uint256 _expectedReceived = mockSwapWrapper.amountOut() - _expectedFee;
 
@@ -932,7 +1206,7 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         // Mint some test tokens directly to the entity.
         testToken1.mint(address(entity), _sweepAmount);
 
-         // Calculate expected results.
+        // Calculate expected results.
         uint256 _expectedFee = Math.zocmul(mockSwapWrapper.amountOut(), _feePercent - onePercentZoc);
         uint256 _expectedReceived = mockSwapWrapper.amountOut() - _expectedFee;
 
@@ -966,7 +1240,7 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         // Send ETH directly to the entity.
         vm.deal(address(entity), _sweepAmount);
 
-         // Calculate expected results.
+        // Calculate expected results.
         uint256 _expectedFee = Math.zocmul(mockSwapWrapper.amountOut(), _feePercent);
         uint256 _expectedReceived = mockSwapWrapper.amountOut() - _expectedFee;
 
@@ -1011,13 +1285,24 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         vm.prank(_manager);
         entity.swapAndReconcileBalance(mockSwapWrapper, address(testToken1), _sweepAmount, "");
     }
+
+    function testFuzz_receiveEth(address payable _sender, uint256 _amount) public {
+        vm.assume(_amount > 0);
+        vm.deal(_sender, _amount);
+        vm.expectEmit(true, false, false, true);
+        emit EntityEthReceived(address(_sender), _amount);
+        vm.prank(_sender);
+        (bool sent, /* bytes memory data */ ) = payable(entity).call{value: _amount}("");
+        assertTrue(sent, "Failed to send Ether");
+        assertEq(address(payable(entity)).balance, _amount);
+    }
 }
 
 contract OrgTokenTransactionTest is EntityTokenTransactionTest {
     // this will run all tests in EntityTokenTransactionTest
     function setUp() public override {
         super.setUp();
-        entity = orgFundFactory.deployOrg("someOrgId", "someSalt");
+        entity = orgFundFactory.deployOrg("someOrgId");
         testEntityType = OrgType;
     }
 }
@@ -1032,7 +1317,6 @@ contract FundTokenTransactionTest is EntityTokenTransactionTest {
 }
 
 contract CallAsEntityTest is EntityHarness {
-
     error CallFailed(bytes response);
 
     error AlwaysReverts();
@@ -1067,10 +1351,7 @@ contract CallAsEntityTest is EntityHarness {
         assertEq(baseToken.balanceOf(_receiver) - _initialBalance, _amount);
     }
 
-    function testFuzz_CallAsEntityForwardsRevertString(
-        uint8 _entityType,
-        address _manager
-    ) public {
+    function testFuzz_CallAsEntityForwardsRevertString(uint8 _entityType, address _manager) public {
         _deployEntity(_entityType, _manager);
 
         // Bytes precalculated for this revert string.
@@ -1087,10 +1368,7 @@ contract CallAsEntityTest is EntityHarness {
         receivingEntity.callAsEntity(address(this), 0, _data);
     }
 
-    function testFuzz_CallAsEntityForwardsCustomError(
-        uint8 _entityType,
-        address _manager
-    ) public {
+    function testFuzz_CallAsEntityForwardsCustomError(uint8 _entityType, address _manager) public {
         _deployEntity(_entityType, _manager);
 
         // Bytes precalculated for this custom error.
@@ -1103,10 +1381,7 @@ contract CallAsEntityTest is EntityHarness {
         receivingEntity.callAsEntity(address(this), 0, _data);
     }
 
-    function testFuzz_CallAsEntityForwardsSilentRevert(
-        uint8 _entityType,
-        address _manager
-    ) public {
+    function testFuzz_CallAsEntityForwardsSilentRevert(uint8 _entityType, address _manager) public {
         _deployEntity(_entityType, _manager);
 
         // A silent error has no additional bytes.
@@ -1119,12 +1394,9 @@ contract CallAsEntityTest is EntityHarness {
         receivingEntity.callAsEntity(address(this), 0, _data);
     }
 
-    function testFuzz_ManagerCannotCallAsEntity(
-        uint8 _entityType,
-        address _manager,
-        address _receiver,
-        uint256 _amount
-    ) public {
+    function testFuzz_ManagerCannotCallAsEntity(uint8 _entityType, address _manager, address _receiver, uint256 _amount)
+        public
+    {
         _amount = bound(_amount, 1, type(uint256).max - 1);
         vm.assume(_manager != board);
 
@@ -1139,16 +1411,20 @@ contract CallAsEntityTest is EntityHarness {
         receivingEntity.callAsEntity(address(baseToken), 0, _data);
     }
 
-    function testFuzz_CanCallAsEntityToSendETH(
-        uint8 _entityType,
-        address _manager,
-        address _receiver,
-        uint256 _amount
-    ) public {
+    function testFuzz_CanCallAsEntityToSendETH(uint8 _entityType, address _manager, address _receiver, uint256 _amount)
+        public
+    {
         _deployEntity(_entityType, _manager);
 
         // Ensure the fuzzer hasn't picked one of our contracts, which won't have a fallback.
         vm.assume(address(_receiver).code.length == 0);
+
+        // TODO: remove these receiver checks when forge fuzzer fixes are in for allowing the prevention pre-compiled addresses
+        //       and not pre-setting built-in forge addresses to have MAX UINT balances.
+        vm.assume(_receiver != msg.sender);
+        vm.assume(_receiver != 0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38);
+        vm.assume(_receiver > address(0x9));
+
         uint256 _initialBalance = _receiver.balance;
 
         // Give the entity an ETH balance.
@@ -1171,6 +1447,12 @@ contract CallAsEntityTest is EntityHarness {
 
         // Ensure the fuzzer hasn't picked one of our contracts, which won't have a fallback.
         vm.assume(address(_receiver).code.length == 0);
+
+        // TODO: remove these receiver checks when forge fuzzer fixes are in for allowing the prevention pre-compiled addresses
+        //       and not pre-setting built-in forge addresses to have MAX UINT balances.
+        vm.assume(_receiver != msg.sender);
+        vm.assume(_receiver != 0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38);
+        vm.assume(_receiver > address(0x9));
 
         uint256 _initialBalance = _receiver.balance;
 

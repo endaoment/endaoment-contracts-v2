@@ -2,33 +2,25 @@
 
 ## Getting Started
 
-This repo is built using [Foundry](https://github.com/gakonst/foundry)
+This repo is built using [Foundry](https://github.com/foundry-rs/foundry)
 
-1. [Install Foundry](https://github.com/gakonst/foundry#installation)
+1. [Install Foundry](https://github.com/foundry-rs/foundry#installation)
 2. Install dependencies with `make install`
 
 To set up this repository with Windows, check [this page.](./docs/windows-setup.md)
 
 ## Development
 
-- Copy the **.env.template file** to **.env** and replace the `RPC_URL` with your own endpoint.
+- Copy the **.env.template file** to **.env** and replace the `RPC_URL` with your own mainnet endpoint.
 - Build contracts with `make build`.
 - Run tests with `make test`.
+- Deploy contracts to a local node hosted on Port 8545 with `make local-deploy`
 
-### Testing
-
-Currently many tests are fuzz tests, where the fuzzer will generate a value between 0 and the max value of the specified type.
-
-For more information, see the [fuzz testing section of the Foundry book](https://onbjerg.github.io/foundry-book/forge/fuzz-testing.html).
-
-### Deployment
-
-For information regarding scripts to accomplish contract deployment, see the [Scripts README file](/script/README.md).
-
+See more information in [script/README.md](./script/README.md).
 
 # Contracts
 
-The Endaoment ecosystem uses several contracts to govern the movement of funds between Donor-Advised Funds (DAFs) and organizations:
+The Endaoment ecosystem uses several contracts to govern the movement of funds between Donor-Advised Funds (DAFs) and organizations. The protocol was audited by Least Authority: for more details, see the [Least Authority audit report](./audit/audit.pdf).
 
 ## `Registry.sol`
 
@@ -42,7 +34,7 @@ The Registry is the center of the contract system. Most of the system is gated b
 
 ## `lib/auth/EndaomentAuth.sol`
 
-EndaomentAuth is an abstract contract from which contracts in the Endaoment ecosystem inherit. EndaomentAuth access-gates important methods on Registry, Entity, Portfolio, and beyond. As owner, the board can create roles and capabilities to express fine-grained permissions. See [DeployTest.sol:L87](/src/test/utils/DeployTest.sol#L87) for working examples of role and capability definitions. Contracts making use of EndaomentAuth can optionally declare themselves a "special target" at deploy time. See documentation on [`EndaomentAuth:specialTarget`](/src/lib/auth/EndaomentAuth.sol#L35) for more information.
+EndaomentAuth is an abstract contract from which contracts in the Endaoment ecosystem inherit. EndaomentAuth access-gates important methods on Registry, Entity, Portfolio, and beyond. As owner, the board can create roles and capabilities to express fine-grained permissions. See [RolesAndCapabilitiesControl.sol:L94](/src/RolesAndCapabilitiesControl.sol#L94) for working examples of role and capability definitions. Contracts making use of EndaomentAuth can optionally declare themselves a "special target" at deploy time. See documentation on [`EndaomentAuth:specialTarget`](/src/lib/auth/EndaomentAuth.sol#L35) for more information.
 
 ## `EntityFactory.sol`
 

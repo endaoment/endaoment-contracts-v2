@@ -1,15 +1,15 @@
 //SPDX-License-Identifier: BSD 3-Clause
 pragma solidity 0.8.13;
 
-import { Math } from "./lib/Math.sol";
-import { ERC20 } from "solmate/tokens/ERC20.sol";
-import { Auth, Authority } from "./lib/auth/Auth.sol"; 
-import { RolesAuthority } from "./lib/auth/authorities/RolesAuthority.sol";
-import { SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
+import {Math} from "./lib/Math.sol";
+import {ERC20} from "solmate/tokens/ERC20.sol";
+import {Auth, Authority} from "./lib/auth/Auth.sol";
+import {SafeTransferLib} from "solmate/utils/SafeTransferLib.sol";
 
-import { Entity } from "./Entity.sol";
-import { ISwapWrapper } from "./interfaces/ISwapWrapper.sol";
-import { Portfolio } from "./Portfolio.sol";
+import {RegistryAuth} from "./RegistryAuth.sol";
+import {Entity} from "./Entity.sol";
+import {ISwapWrapper} from "./interfaces/ISwapWrapper.sol";
+import {Portfolio} from "./Portfolio.sol";
 
 // --- Errors ---
 error Unauthorized();
@@ -18,8 +18,7 @@ error UnsupportedSwapper();
 /**
  * @notice Registry entity - manages Factory and Entity state info.
  */
-contract Registry is RolesAuthority {
-
+contract Registry is RegistryAuth {
     // --- Storage ---
 
     /// @notice Treasury address can receives fees.
@@ -29,31 +28,31 @@ contract Registry is RolesAuthority {
     ERC20 public immutable baseToken;
 
     /// @notice Mapping of approved factory contracts that are allowed to register new Entities.
-    mapping (address => bool) public isApprovedFactory;
+    mapping(address => bool) public isApprovedFactory;
     /// @notice Mapping of active status of entities.
-    mapping (Entity => bool) public isActiveEntity;
+    mapping(Entity => bool) public isActiveEntity;
 
     /// @notice Maps entity type to donation fee percentage stored as a zoc, where type(uint32).max represents 0.
-    mapping (uint8 => uint32) defaultDonationFee;
+    mapping(uint8 => uint32) defaultDonationFee;
     /// @notice Maps specific entity receiver to donation fee percentage stored as a zoc.
-    mapping (Entity => uint32) donationFeeReceiverOverride;
+    mapping(Entity => uint32) donationFeeReceiverOverride;
 
     /// @notice Maps entity type to payout fee percentage stored as a zoc, where type(uint32).max represents 0.
-    mapping (uint8 => uint32) defaultPayoutFee;
+    mapping(uint8 => uint32) defaultPayoutFee;
     /// @notice Maps specific entity sender to payout fee percentage stored as a zoc.
-    mapping (Entity => uint32) payoutFeeOverride;
+    mapping(Entity => uint32) payoutFeeOverride;
 
     /// @notice Maps sender entity type to receiver entity type to fee percentage as a zoc.
-    mapping (uint8 => mapping(uint8 => uint32)) defaultTransferFee;
+    mapping(uint8 => mapping(uint8 => uint32)) defaultTransferFee;
     /// @notice Maps specific entity sender to receiver entity type to fee percentage as a zoc.
-    mapping (Entity => mapping(uint8 => uint32)) transferFeeSenderOverride;
+    mapping(Entity => mapping(uint8 => uint32)) transferFeeSenderOverride;
     /// @notice Maps sender entity type to specific entity receiver to fee percentage as a zoc.
-    mapping (uint8 => mapping(Entity => uint32)) transferFeeReceiverOverride;
+    mapping(uint8 => mapping(Entity => uint32)) transferFeeReceiverOverride;
     /// @notice Maps swap wrappers to their enabled/disabled status.
 
-    mapping (ISwapWrapper => bool) public isSwapperSupported;
+    mapping(ISwapWrapper => bool) public isSwapperSupported;
     /// @notice Maps portfolios to their enabled/disabled status.
-    mapping (Portfolio => bool) public isActivePortfolio;
+    mapping(Portfolio => bool) public isActivePortfolio;
 
     // --- Events ---
 
@@ -97,15 +96,16 @@ contract Registry is RolesAuthority {
      * @notice Modifier for methods that require auth and that the manager cannot access.
      * @dev Overridden from Auth.sol. Reason: use custom error.
      */
-    modifier requiresAuth override {
-        if(!isAuthorized(msg.sender, msg.sig)) revert Unauthorized();
+    modifier requiresAuth() override {
+        if (!isAuthorized(msg.sender, msg.sig)) revert Unauthorized();
 
         _;
     }
 
     // --- Constructor ---
-    constructor(address _admin, address _treasury, ERC20 _baseToken) RolesAuthority(_admin, Authority(address(this))) {
+    constructor(address _admin, address _treasury, ERC20 _baseToken) RegistryAuth(_admin, Authority(address(this))) {
         treasury = _treasury;
+        emit TreasuryChanged(address(0), _treasury);
         baseToken = _baseToken;
     }
 
@@ -133,10 +133,10 @@ contract Registry is RolesAuthority {
      * @notice Sets a new Endaoment treasury address.
      * @param _newTreasury The new treasury.
      */
-     function setTreasury(address _newTreasury) external requiresAuth {
-         emit TreasuryChanged(treasury, _newTreasury);
-         treasury = _newTreasury;
-     }
+    function setTreasury(address _newTreasury) external requiresAuth {
+        emit TreasuryChanged(treasury, _newTreasury);
+        treasury = _newTreasury;
+    }
 
     /**
      * @notice Sets the approval state of a factory. Grants the factory permissions to set entity status.
@@ -164,7 +164,7 @@ contract Registry is RolesAuthority {
      * @param _entity The entity.
      */
     function setEntityActive(Entity _entity) external {
-        if(!isApprovedFactory[msg.sender]) revert Unauthorized();
+        if (!isApprovedFactory[msg.sender]) revert Unauthorized();
         isActiveEntity[_entity] = true;
         emit EntityStatusSet(address(_entity), true);
     }
@@ -186,7 +186,7 @@ contract Registry is RolesAuthority {
      * @dev Makes use of _parseFeeWithFlip, so if no default exists, "max" will be returned.
      */
     function getDonationFee(Entity _entity) external view returns (uint32) {
-       return _parseFeeWithFlip(defaultDonationFee[_entity.entityType()]);
+        return _parseFeeWithFlip(defaultDonationFee[_entity.entityType()]);
     }
 
     /**
@@ -208,7 +208,7 @@ contract Registry is RolesAuthority {
      * @dev Makes use of _parseFeeWithFlip, so if no default exists, "max" will be returned.
      */
     function getPayoutFee(Entity _entity) external view returns (uint32) {
-       return _parseFeeWithFlip(defaultPayoutFee[_entity.entityType()]);
+        return _parseFeeWithFlip(defaultPayoutFee[_entity.entityType()]);
     }
 
     /**
@@ -320,7 +320,10 @@ contract Registry is RolesAuthority {
      * @param _toEntity The receiving entity.
      * @param _fee The overriding fee percentage (a zoc).
      */
-    function setTransferFeeReceiverOverride(uint8 _fromEntityType, Entity _toEntity, uint32 _fee) external requiresAuth {
+    function setTransferFeeReceiverOverride(uint8 _fromEntityType, Entity _toEntity, uint32 _fee)
+        external
+        requiresAuth
+    {
         transferFeeReceiverOverride[_fromEntityType][_toEntity] = _parseFeeWithFlip(_fee);
         emit TransferFeeReceiverOverrideSet(_fromEntityType, address(_toEntity), _fee);
     }

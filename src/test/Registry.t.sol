@@ -1,12 +1,13 @@
-// SPDX-License-Identifier: BSD 3-Claused
+// SPDX-License-Identifier: BSD 3-Clause
 pragma solidity 0.8.13;
+
 import "./utils/DeployTest.sol";
-import { Registry } from "../Registry.sol";
-import { OrgFundFactory } from "../OrgFundFactory.sol";
-import { Org } from "../Org.sol";
-import { Fund } from "../Fund.sol";
-import { Entity } from "../Entity.sol";
-import { ISwapWrapper } from "../interfaces/ISwapWrapper.sol";
+import {Registry} from "../Registry.sol";
+import {OrgFundFactory} from "../OrgFundFactory.sol";
+import {Org} from "../Org.sol";
+import {Fund} from "../Fund.sol";
+import {Entity} from "../Entity.sol";
+import {ISwapWrapper} from "../interfaces/ISwapWrapper.sol";
 
 contract RegistryTest is DeployTest {
     event FactoryApprovalSet(address indexed factory, bool isApproved);
@@ -24,8 +25,9 @@ contract RegistryTest is DeployTest {
 }
 
 contract RegistryConstructor is RegistryTest {
-
     function testFuzz_RegistryConstructor(address _admin, address _treasury, address _baseToken) public {
+        vm.expectEmit(true, false, false, true);
+        emit TreasuryChanged(address(0), _treasury);
         Registry _registry = new Registry(_admin, _treasury, ERC20(_baseToken));
         assertEq(_registry.owner(), _admin);
         assertEq(_registry.treasury(), _treasury);
@@ -34,10 +36,10 @@ contract RegistryConstructor is RegistryTest {
 }
 
 contract RegistrySetTreasury is RegistryTest {
-
     address[] public actors = [board];
-    function testFuzzSetTreasurySuccess(address _newTreasuryAddress, uint _actor) public {
-        vm.expectEmit(true, true, false, false);
+
+    function testFuzzSetTreasurySuccess(address _newTreasuryAddress, uint256 _actor) public {
+        vm.expectEmit(true, false, false, true);
         emit TreasuryChanged(globalTestRegistry.treasury(), _newTreasuryAddress);
         address actor = actors[_actor % actors.length];
         vm.prank(actor);
@@ -53,7 +55,6 @@ contract RegistrySetTreasury is RegistryTest {
 }
 
 contract RegistrySetFactoryApproval is RegistryTest {
-
     function testFuzz_SetFactoryApprovalTrue(address _factoryAddress) public {
         vm.expectEmit(true, false, false, false);
         emit FactoryApprovalSet(_factoryAddress, true);
@@ -97,7 +98,8 @@ contract RegistrySetEntityActive is RegistryTest {
 
 contract RegistrySetEntityStatus is RegistryTest {
     address[] public actors = [board, capitalCommittee];
-    function testFuzz_SetEntityStatus(Entity _entity, bool _status, uint _actor) public {
+
+    function testFuzz_SetEntityStatus(Entity _entity, bool _status, uint256 _actor) public {
         address actor = actors[_actor % actors.length];
         vm.expectEmit(true, false, false, false);
         emit EntityStatusSet(address(_entity), _status);
@@ -131,7 +133,8 @@ contract RegistrySetSwapWrapperStatus is RegistryTest {
 
 contract RegistrySetPortfolioStatus is RegistryTest {
     address[] actors = [board, investmentCommittee];
-    function testFuzz_SetPortfolioStatus(Portfolio _portfolio, bool _status, uint _actor) public {
+
+    function testFuzz_SetPortfolioStatus(Portfolio _portfolio, bool _status, uint256 _actor) public {
         address actor = actors[_actor % actors.length];
         vm.expectEmit(true, true, false, false);
         emit PortfolioStatusSet(address(_portfolio), _status);
@@ -155,7 +158,7 @@ contract RegistrySetDefaultDonationFee is RegistryTest {
     address[] public actors = [board, programCommittee];
 
     // test to set fee for an entity type
-    function testFuzz_SetDefaultDonationFee(uint32 _fee, uint _actor, address _manager) public {
+    function testFuzz_SetDefaultDonationFee(uint32 _fee, uint256 _actor, address _manager) public {
         address actor = actors[_actor % actors.length];
         Fund _fund = orgFundFactory.deployFund(_manager, "salt");
         vm.expectEmit(true, false, false, false);
@@ -172,9 +175,9 @@ contract RegistrySetDefaultDonationFee is RegistryTest {
     }
 
     // Test zeroing the fee.
-    function testFuzz_SetDefaultDonationFeeToNoFee(uint _actor, bytes32 _orgId) public {
+    function testFuzz_SetDefaultDonationFeeToNoFee(uint256 _actor, bytes32 _orgId) public {
         address actor = actors[_actor % actors.length];
-        Org _org = orgFundFactory.deployOrg(_orgId, "salt");
+        Org _org = orgFundFactory.deployOrg(_orgId);
         vm.expectEmit(true, false, false, false);
         emit DefaultDonationFeeSet(OrgType, 0);
         vm.prank(actor);
@@ -182,10 +185,10 @@ contract RegistrySetDefaultDonationFee is RegistryTest {
         assertEq(globalTestRegistry.getDonationFee(_org), 0);
     }
 
-    // test maxing fee via setting value to maxint 
-    function testFuzz_SetDefaultDonationFeeToMax(uint _actor, bytes32 _orgId) public {
+    // test maxing fee via setting value to maxint
+    function testFuzz_SetDefaultDonationFeeToMax(uint256 _actor, bytes32 _orgId) public {
         address actor = actors[_actor % actors.length];
-        Org _org = orgFundFactory.deployOrg(_orgId, "salt");
+        Org _org = orgFundFactory.deployOrg(_orgId);
         vm.expectEmit(true, false, false, false);
         emit DefaultDonationFeeSet(OrgType, type(uint32).max);
         vm.prank(actor);
@@ -209,9 +212,11 @@ contract RegistrySetDonationFeeReceiverOverride is RegistryTest {
     address[] public actors = [board, programCommittee];
 
     // test that fee override for a specific receiving entity causes the fetch of the overridden fee
-    function testFuzz_SetDonationFeeReceiverOverride(uint32 _fee, uint _actor, address _manager1, address _manager2) public {
+    function testFuzz_SetDonationFeeReceiverOverride(uint32 _fee, uint256 _actor, address _manager1, address _manager2)
+        public
+    {
         vm.assume(_manager1 != _manager2);
-        vm.assume( (_fee > 0) && (_fee < (type(uint32).max-1)) );
+        vm.assume((_fee > 0) && (_fee < (type(uint32).max - 1)));
         address actor = actors[_actor % actors.length];
         Fund _fund1 = orgFundFactory.deployFund(_manager1, "salt");
         Fund _fund2 = orgFundFactory.deployFund(_manager2, "salt2");
@@ -228,11 +233,11 @@ contract RegistrySetDonationFeeReceiverOverride is RegistryTest {
     }
 
     // test zeroing the override for a specific receiving entity triggers an override of no fee
-    function testFuzz_SetDonationFeeReceiverOverrideToNoFee(uint _actor, bytes32 _orgId1, bytes32 _orgId2) public {
+    function testFuzz_SetDonationFeeReceiverOverrideToNoFee(uint256 _actor, bytes32 _orgId1, bytes32 _orgId2) public {
         vm.assume(_orgId1 != _orgId2);
         address actor = actors[_actor % actors.length];
-        Org _org1 = orgFundFactory.deployOrg(_orgId1, "salt");
-        Org _org2 = orgFundFactory.deployOrg(_orgId2, "salt2");
+        Org _org1 = orgFundFactory.deployOrg(_orgId1);
+        Org _org2 = orgFundFactory.deployOrg(_orgId2);
         vm.startPrank(actor);
         vm.expectEmit(true, false, false, false);
         emit DefaultDonationFeeSet(OrgType, 10);
@@ -246,9 +251,9 @@ contract RegistrySetDonationFeeReceiverOverride is RegistryTest {
     }
 
     // test that not setting the override for a specific receiving entity causes getDonationFeeWithOverrides to return the default fee
-    function testFuzz_SetDonationFeeReceiverOverrideNotDoneYieldsDefaultFee(uint _actor, bytes32 _orgId) public {
+    function testFuzz_SetDonationFeeReceiverOverrideNotDoneYieldsDefaultFee(uint256 _actor, bytes32 _orgId) public {
         address actor = actors[_actor % actors.length];
-        Org _org = orgFundFactory.deployOrg(_orgId, "salt");
+        Org _org = orgFundFactory.deployOrg(_orgId);
         vm.startPrank(actor);
         vm.expectEmit(true, false, false, false);
         emit DefaultDonationFeeSet(OrgType, 10);
@@ -274,7 +279,7 @@ contract RegistrySetDefaultPayoutFee is RegistryTest {
     address[] public actors = [board, programCommittee];
 
     // test to set fee for an entity type
-    function testFuzz_SetDefaultPayoutFee(uint32 _fee, uint _actor, address _manager) public {
+    function testFuzz_SetDefaultPayoutFee(uint32 _fee, uint256 _actor, address _manager) public {
         address actor = actors[_actor % actors.length];
         Fund _fund = orgFundFactory.deployFund(_manager, "salt");
         vm.expectEmit(true, false, false, true);
@@ -291,9 +296,9 @@ contract RegistrySetDefaultPayoutFee is RegistryTest {
     }
 
     // Test zeroing the fee.
-    function testFuzz_SetDefaultPayoutFeeToNoFee(uint _actor, bytes32 _orgId) public {
+    function testFuzz_SetDefaultPayoutFeeToNoFee(uint256 _actor, bytes32 _orgId) public {
         address actor = actors[_actor % actors.length];
-        Org _org = orgFundFactory.deployOrg(_orgId, "salt");
+        Org _org = orgFundFactory.deployOrg(_orgId);
         vm.expectEmit(true, false, false, true);
         emit DefaultPayoutFeeSet(OrgType, 0);
         vm.prank(actor);
@@ -301,10 +306,10 @@ contract RegistrySetDefaultPayoutFee is RegistryTest {
         assertEq(globalTestRegistry.getPayoutFee(_org), 0);
     }
 
-    // test maxing fee via setting value to maxint 
-    function testFuzz_SetDefaultPayoutFeeToMax(uint _actor, bytes32 _orgId) public {
+    // test maxing fee via setting value to maxint
+    function testFuzz_SetDefaultPayoutFeeToMax(uint256 _actor, bytes32 _orgId) public {
         address actor = actors[_actor % actors.length];
-        Org _org = orgFundFactory.deployOrg(_orgId, "salt");
+        Org _org = orgFundFactory.deployOrg(_orgId);
         vm.expectEmit(true, false, false, true);
         emit DefaultPayoutFeeSet(OrgType, type(uint32).max);
         vm.prank(actor);
@@ -328,7 +333,7 @@ contract RegistrySetPayoutFeeOverride is RegistryTest {
     address[] public actors = [board, programCommittee];
 
     // test that fee override for a specific receiving entity causes the fetch of the overridden fee
-    function testFuzz_SetPayoutFeeOverride(uint32 _fee, uint _actor, address _manager1, address _manager2) public {
+    function testFuzz_SetPayoutFeeOverride(uint32 _fee, uint256 _actor, address _manager1, address _manager2) public {
         vm.assume(_fee < type(uint32).max);
         address actor = actors[_actor % actors.length];
         Fund _fund1 = orgFundFactory.deployFund(_manager1, "salt");
@@ -346,11 +351,11 @@ contract RegistrySetPayoutFeeOverride is RegistryTest {
     }
 
     // test zeroing the override for a specific receiving entity triggers an override of no fee
-    function testFuzz_SetPayoutFeeOverrideToNoFee(uint _actor, bytes32 _orgId1, bytes32 _orgId2) public {
+    function testFuzz_SetPayoutFeeOverrideToNoFee(uint256 _actor, bytes32 _orgId1, bytes32 _orgId2) public {
         vm.assume(_orgId1 != _orgId2);
         address actor = actors[_actor % actors.length];
-        Org _org1 = orgFundFactory.deployOrg(_orgId1, "salt");
-        Org _org2 = orgFundFactory.deployOrg(_orgId2, "salt2");
+        Org _org1 = orgFundFactory.deployOrg(_orgId1);
+        Org _org2 = orgFundFactory.deployOrg(_orgId2);
         vm.startPrank(actor);
         vm.expectEmit(true, false, false, true);
         emit DefaultPayoutFeeSet(OrgType, 10);
@@ -364,9 +369,9 @@ contract RegistrySetPayoutFeeOverride is RegistryTest {
     }
 
     // test that not setting the override for a specific receiving entity causes getPayoutFeeWithOverrides to return the default fee
-    function testFuzz_SetPayoutFeeOverrideNotDoneYieldsDefaultFee(uint _actor, bytes32 _orgId) public {
+    function testFuzz_SetPayoutFeeOverrideNotDoneYieldsDefaultFee(uint256 _actor, bytes32 _orgId) public {
         address actor = actors[_actor % actors.length];
-        Org _org = orgFundFactory.deployOrg(_orgId, "salt");
+        Org _org = orgFundFactory.deployOrg(_orgId);
         vm.startPrank(actor);
         vm.expectEmit(true, false, false, true);
         emit DefaultPayoutFeeSet(OrgType, 10);
@@ -393,11 +398,11 @@ contract RegistrySetDefaultTransferFee is RegistryTest {
     address[] public actors = [board, programCommittee];
 
     // test the setting of default transfer fee between 2 entity types
-    function testFuzz_SetDefaultTransferFee(uint32 _fee, uint _actor, address _manager, bytes32 _orgId) public {
-        vm.assume( (_fee > 0) && (_fee < (type(uint32).max)) );
+    function testFuzz_SetDefaultTransferFee(uint32 _fee, uint256 _actor, address _manager, bytes32 _orgId) public {
+        vm.assume((_fee > 0) && (_fee < (type(uint32).max)));
         address actor = actors[_actor % actors.length];
         Fund _fund = orgFundFactory.deployFund(_manager, "salt");
-        Org _org = orgFundFactory.deployOrg(_orgId, "salt");
+        Org _org = orgFundFactory.deployOrg(_orgId);
         vm.expectEmit(true, true, false, false);
         emit DefaultTransferFeeSet(FundType, OrgType, _fee);
         vm.prank(actor);
@@ -407,16 +412,16 @@ contract RegistrySetDefaultTransferFee is RegistryTest {
 
     // Test that an unmapped default fee causes the return of max value
     function testFuzz_UnmappedDefaultTransferFee(address _manager, bytes32 _orgId) public {
-        Org org = orgFundFactory.deployOrg(_orgId, "salt");
+        Org org = orgFundFactory.deployOrg(_orgId);
         Fund fund = orgFundFactory.deployFund(_manager, "salt");
         assertEq(globalTestRegistry.getTransferFee(fund, org), type(uint32).max);
     }
 
     // test zeroing the default transfer fee between 2 entity types
-    function testFuzz_SetDefaultTransferFeeNoFee(uint _actor, address _manager, bytes32 _orgId) public {
+    function testFuzz_SetDefaultTransferFeeNoFee(uint256 _actor, address _manager, bytes32 _orgId) public {
         address actor = actors[_actor % actors.length];
         Fund _fund = orgFundFactory.deployFund(_manager, "salt");
-        Org _org = orgFundFactory.deployOrg(_orgId, "salt");
+        Org _org = orgFundFactory.deployOrg(_orgId);
         vm.expectEmit(true, true, false, false);
         emit DefaultTransferFeeSet(FundType, OrgType, 0);
         vm.prank(actor);
@@ -425,10 +430,10 @@ contract RegistrySetDefaultTransferFee is RegistryTest {
     }
 
     // test maxing the default transfer fee between 2 entity types
-    function testFuzz_SetDefaultTransferFeeToMax(uint _actor, address _manager, bytes32 _orgId) public {
+    function testFuzz_SetDefaultTransferFeeToMax(uint256 _actor, address _manager, bytes32 _orgId) public {
         address actor = actors[_actor % actors.length];
         Fund _fund = orgFundFactory.deployFund(_manager, "salt");
-        Org _org = orgFundFactory.deployOrg(_orgId, "salt");
+        Org _org = orgFundFactory.deployOrg(_orgId);
         vm.expectEmit(true, true, false, false);
         emit DefaultTransferFeeSet(FundType, OrgType, type(uint32).max);
         vm.prank(actor);
@@ -451,13 +456,19 @@ contract RegistrySetTransferFeeSenderOverride is RegistryTest {
     address[] public actors = [board, programCommittee];
 
     // test the setting of the transfer fee sender override for an entity
-    function testFuzz_SetTransferFeeSenderOverride(uint32 _fee, uint _actor, address _manager1, address _manager2, bytes32 _orgId) public {
+    function testFuzz_SetTransferFeeSenderOverride(
+        uint32 _fee,
+        uint256 _actor,
+        address _manager1,
+        address _manager2,
+        bytes32 _orgId
+    ) public {
         vm.assume(_manager1 != _manager2);
-        vm.assume( (_fee > 0) && (_fee < (type(uint32).max-1)) );
+        vm.assume((_fee > 0) && (_fee < (type(uint32).max - 1)));
         address actor = actors[_actor % actors.length];
         Fund _fund1 = orgFundFactory.deployFund(_manager1, "salt");
         Fund _fund2 = orgFundFactory.deployFund(_manager2, "salt2");
-        Org _org = orgFundFactory.deployOrg(_orgId, "salt");
+        Org _org = orgFundFactory.deployOrg(_orgId);
         vm.startPrank(actor);
         vm.expectEmit(true, true, false, false);
         emit DefaultTransferFeeSet(FundType, OrgType, _fee + 1);
@@ -471,12 +482,17 @@ contract RegistrySetTransferFeeSenderOverride is RegistryTest {
     }
 
     // test the setting of the transfer fee sender override for an entity to zero
-    function testFuzz_SetTransferFeeSenderOverrideToNoFee(uint _actor, address _manager1, address _manager2, bytes32 _orgId) public {
+    function testFuzz_SetTransferFeeSenderOverrideToNoFee(
+        uint256 _actor,
+        address _manager1,
+        address _manager2,
+        bytes32 _orgId
+    ) public {
         vm.assume(_manager1 != _manager2);
         address actor = actors[_actor % actors.length];
         Fund _fund1 = orgFundFactory.deployFund(_manager1, "salt");
         Fund _fund2 = orgFundFactory.deployFund(_manager2, "salt2");
-        Org _org = orgFundFactory.deployOrg(_orgId, "salt");
+        Org _org = orgFundFactory.deployOrg(_orgId);
         vm.startPrank(actor);
         vm.expectEmit(true, true, false, false);
         emit DefaultTransferFeeSet(FundType, OrgType, 10);
@@ -490,10 +506,12 @@ contract RegistrySetTransferFeeSenderOverride is RegistryTest {
     }
 
     // test that not setting transfer overrides getTransferFeeWithOverrides to return the default fee
-    function testFuzz_SetTransferFeeOverrideNotDoneYeildsDefaultFee(uint _actor, address _manager, bytes32 _orgId) public {
+    function testFuzz_SetTransferFeeOverrideNotDoneYeildsDefaultFee(uint256 _actor, address _manager, bytes32 _orgId)
+        public
+    {
         address actor = actors[_actor % actors.length];
         Fund _fund = orgFundFactory.deployFund(_manager, "salt");
-        Org _org = orgFundFactory.deployOrg(_orgId, "salt");
+        Org _org = orgFundFactory.deployOrg(_orgId);
         vm.startPrank(actor);
         vm.expectEmit(true, true, false, false);
         emit DefaultTransferFeeSet(FundType, OrgType, 10);
@@ -518,13 +536,19 @@ contract RegistrySetTransferFeeReceiverOverride is RegistryTest {
     address[] public actors = [board, programCommittee];
 
     // test the setting of the transfer fee receiver override for an entity
-    function testFuzz_SetTransferFeeReceiverOverride(uint32 _fee, uint _actor, address _manager, bytes32 _orgId1, bytes32 _orgId2) public {
+    function testFuzz_SetTransferFeeReceiverOverride(
+        uint32 _fee,
+        uint256 _actor,
+        address _manager,
+        bytes32 _orgId1,
+        bytes32 _orgId2
+    ) public {
         vm.assume(_orgId1 != _orgId2);
-        vm.assume( (_fee > 0) && (_fee < (type(uint32).max-1)) );
+        vm.assume((_fee > 0) && (_fee < (type(uint32).max - 1)));
         address actor = actors[_actor % actors.length];
         Fund _fund = orgFundFactory.deployFund(_manager, "salt");
-        Org _org1 = orgFundFactory.deployOrg(_orgId1, "salt");
-        Org _org2 = orgFundFactory.deployOrg(_orgId2, "salt2");
+        Org _org1 = orgFundFactory.deployOrg(_orgId1);
+        Org _org2 = orgFundFactory.deployOrg(_orgId2);
         vm.startPrank(actor);
         vm.expectEmit(true, true, false, false);
         emit DefaultTransferFeeSet(FundType, OrgType, _fee + 1);
@@ -538,12 +562,17 @@ contract RegistrySetTransferFeeReceiverOverride is RegistryTest {
     }
 
     // test the setting of the transfer fee receiver override for an entity to zero
-    function testFuzz_SetTransferFeeReceiverOverrideToNoFee(uint _actor, address _manager, bytes32 _orgId1, bytes32 _orgId2) public {
+    function testFuzz_SetTransferFeeReceiverOverrideToNoFee(
+        uint256 _actor,
+        address _manager,
+        bytes32 _orgId1,
+        bytes32 _orgId2
+    ) public {
         vm.assume(_orgId1 != _orgId2);
         address actor = actors[_actor % actors.length];
         Fund _fund = orgFundFactory.deployFund(_manager, "salt");
-        Org _org1 = orgFundFactory.deployOrg(_orgId1, "salt");
-        Org _org2 = orgFundFactory.deployOrg(_orgId2, "salt2");
+        Org _org1 = orgFundFactory.deployOrg(_orgId1);
+        Org _org2 = orgFundFactory.deployOrg(_orgId2);
         vm.startPrank(actor);
         vm.expectEmit(true, true, false, false);
         emit DefaultTransferFeeSet(FundType, OrgType, 10);
@@ -558,7 +587,7 @@ contract RegistrySetTransferFeeReceiverOverride is RegistryTest {
 
     // test that an unauthorized user  cannot set the transfer fee sender override
     function testFuzz_SetTransferFeeReceiverOverrideUnauthorized(uint32 _fee, bytes32 _orgId) public {
-        Org _org = orgFundFactory.deployOrg(_orgId, "salt");
+        Org _org = orgFundFactory.deployOrg(_orgId);
         vm.expectRevert(Unauthorized.selector);
         globalTestRegistry.setTransferFeeReceiverOverride(FundType, _org, _fee);
     }

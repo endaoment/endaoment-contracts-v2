@@ -1,16 +1,18 @@
-// SPDX-License-Identifier: BSD 3-Claused
-pragma solidity ^0.8.12;
+// SPDX-License-Identifier: BSD 3-Clause
+pragma solidity 0.8.13;
 
 import "solmate/tokens/ERC20.sol";
 
-import { IERC20 } from "openzeppelin-contracts/contracts/interfaces/IERC20.sol";
-
-import { Registry } from "../src/Registry.sol";
-import { OrgFundFactory} from "../src/OrgFundFactory.sol";
-import { RolesAndCapabilitiesControl } from "../src/RolesAndCapabilitiesControl.sol";
-import { NDAO } from "../src/NDAO.sol";
-import { NVT, INDAO } from "../src/NVT.sol";
-import { RollingMerkleDistributor } from "../src/RollingMerkleDistributor.sol";
+import {IERC20} from "openzeppelin-contracts/contracts/interfaces/IERC20.sol";
+import {Registry} from "../src/Registry.sol";
+import {OrgFundFactory} from "../src/OrgFundFactory.sol";
+import {RolesAndCapabilitiesControl} from "../src/RolesAndCapabilitiesControl.sol";
+import {NDAO} from "../src/NDAO.sol";
+import {NVT, INDAO} from "../src/NVT.sol";
+import {RollingMerkleDistributor} from "../src/RollingMerkleDistributor.sol";
+import {UniV3Wrapper} from "../src/swapWrappers/UniV3Wrapper.sol";
+import {AutoRouterWrapper} from "../src/swapWrappers/AutoRouterWrapper.sol";
+import {ISwapWrapper} from "../src/interfaces/ISwapWrapper.sol";
 
 import "forge-std/Script.sol";
 
@@ -18,6 +20,8 @@ import "forge-std/Script.sol";
  * @notice Deploy script - manages the deployment of the protocol contracts and their initial configuration.
  */
 contract Deploy is Script, RolesAndCapabilitiesControl {
+    uint8 public constant OrgType = 1;
+    uint8 public constant FundType = 2;
 
     // Core protocol contract collection (returned from deploy)
     struct DeployedEndaomentInstance {
@@ -38,13 +42,11 @@ contract Deploy is Script, RolesAndCapabilitiesControl {
     /**
      * @notice Performs the deployment of the core protocol contracts to an Ethereum network.
      */
-    function deploy(address _deployer, address _baseTokenAddress, address _treasury, bytes32 _initialRoot, uint256 _initialPeriod) public {
-        console2.log("deployerAddress", _deployer);
+    function deployCore(address _baseTokenAddress, address _treasury) public {
         baseToken = ERC20(_baseTokenAddress);
 
-        // deploy core contracts
         vm.broadcast();
-        registry = new Registry(_deployer, _treasury, baseToken);
+        registry = new Registry(msg.sender, _treasury, baseToken);
         deployedContracts.registry = registry;
         console2.log("registryContractAddress", address(registry));
 
@@ -56,6 +58,28 @@ contract Deploy is Script, RolesAndCapabilitiesControl {
         registry.setFactoryApproval(address(deployedContracts.orgFundFactory), true);
         console2.log("Factory approval performed for Org/Fund Factory");
 
+        console2.log("Local core protocol deployment SUCCESS");
+    }
+
+    function deployAutoRouterWrapper(address _uniSwapRouter02) public {
+        vm.broadcast();
+        ISwapWrapper wrapper = new AutoRouterWrapper("Uniswap AutoRouter Wrapper", _uniSwapRouter02);
+
+        vm.broadcast();
+        registry.setSwapWrapperStatus(wrapper, true);
+        console2.log("AutoRouter wrapper", address(wrapper));
+    }
+
+    function deployUniV3Wrapper(address _uniV3SwapRouter) public {
+        vm.broadcast();
+        ISwapWrapper wrapper = new UniV3Wrapper("UniV3 SwapRouter Wrapper", _uniV3SwapRouter);
+
+        vm.broadcast();
+        registry.setSwapWrapperStatus(wrapper, true);
+        console2.log("uniswapV3SwapWrapperContractAddress", address(wrapper));
+    }
+
+    function deployTokens(bytes32 _initialRoot, uint256 _initialPeriod) public {
         vm.broadcast();
         deployedContracts.ndao = new NDAO(registry);
         console2.log("ndaoContractAddress", address(deployedContracts.ndao));
@@ -65,30 +89,52 @@ contract Deploy is Script, RolesAndCapabilitiesControl {
         console2.log("nvtContractAddress", address(deployedContracts.nvt));
 
         vm.broadcast();
-        deployedContracts.distributor = new RollingMerkleDistributor(IERC20(address(deployedContracts.ndao)), _initialRoot, _initialPeriod, registry);
+        deployedContracts.distributor =
+        new RollingMerkleDistributor(IERC20(address(deployedContracts.ndao)), _initialRoot, _initialPeriod, registry);
         console2.log("merkleDistributorContractAddress", address(deployedContracts.distributor));
 
         vm.broadcast();
-        deployedContracts.baseDistributor = new RollingMerkleDistributor(IERC20(address(baseToken)), _initialRoot, _initialPeriod, registry);
+        deployedContracts.baseDistributor =
+            new RollingMerkleDistributor(IERC20(address(baseToken)), _initialRoot, _initialPeriod, registry);
         console2.log("merkleBaseTokenDistributorContractAddress", address(deployedContracts.baseDistributor));
-
-        console2.log("Local core protocol deployment SUCCESS");
     }
 
     /**
      * @notice Setup the proper roles and capabilities for the capitalCommittee, programCommittee, investmentCommittee, and tokenTrust.
      */
-    function setAllRoles(address _capitalCommittee, address _programCommittee, address _investmentCommittee, address _tokenTrust) public {
+    function setAllRoles(
+        address _capitalCommittee,
+        address _programCommittee,
+        address _investmentCommittee,
+        address _tokenTrust
+    ) public {
         vm.startBroadcast();
-        setRolesAndCapabilities(registry, _capitalCommittee, _programCommittee, _investmentCommittee, _tokenTrust,
-                                deployedContracts.ndao, deployedContracts.nvt, deployedContracts.distributor, deployedContracts.baseDistributor);
-
+        setRolesAndCapabilities(
+            registry,
+            _capitalCommittee,
+            _programCommittee,
+            _investmentCommittee,
+            _tokenTrust,
+            deployedContracts.ndao,
+            deployedContracts.nvt,
+            deployedContracts.distributor,
+            deployedContracts.baseDistributor
+        );
         vm.stopBroadcast();
+    }
 
-        console2.log("Capital Committee: (2)", _capitalCommittee);
-        console2.log("Program Committee: (3)", _programCommittee);
-        console2.log("Investment Committee: (4)", _investmentCommittee);
-        console2.log("Token Trust: (5)", _tokenTrust);
+    /**
+     * @notice Sets most roles and capabilties, but not those for anything token-related.
+     */
+    function setCoreRoles(
+        address _capitalCommittee,
+        address _programCommittee,
+        address _investmentCommittee,
+        address _tokenTrust
+    ) public {
+        vm.startBroadcast();
+        setCoreRolesAndCapabilities(registry, _capitalCommittee, _programCommittee, _investmentCommittee, _tokenTrust);
+        vm.stopBroadcast();
     }
 
     /**
@@ -96,7 +142,8 @@ contract Deploy is Script, RolesAndCapabilitiesControl {
      */
     function setBoard(address _newRegistryOwner) public {
         vm.broadcast();
-        registry.setOwner(_newRegistryOwner);
-        console2.log("Registry owner: (0)" , _newRegistryOwner);
+        registry.transferOwnership(_newRegistryOwner);
+        console2.log("Registry owner is now proposed to be", _newRegistryOwner);
+        console2.log("For that user to become registry owner, they must execute registry.claimOwnership()");
     }
 }

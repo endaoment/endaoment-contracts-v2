@@ -1,16 +1,15 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity 0.8.13;
 
-import { IERC20 } from "openzeppelin-contracts/contracts/interfaces/IERC20.sol";
-import { MerkleProof } from "openzeppelin-contracts/contracts/utils/cryptography/MerkleProof.sol";
-import { EndaomentAuth } from "./lib/auth/EndaomentAuth.sol";
-import { RolesAuthority } from "./lib/auth/authorities/RolesAuthority.sol";
+import {IERC20} from "openzeppelin-contracts/contracts/interfaces/IERC20.sol";
+import {MerkleProof} from "openzeppelin-contracts/contracts/utils/cryptography/MerkleProof.sol";
+import {EndaomentAuth} from "./lib/auth/EndaomentAuth.sol";
+import {RolesAuthority} from "./lib/auth/authorities/RolesAuthority.sol";
 
 /**
  * @notice Defines the data, error, and event types used by the RollingMerkleDistributor contract.
  */
 abstract contract RollingMerkleDistributorTypes {
-
     /// @notice Data associated with a proof-based claim.
     struct Claim {
         uint256 index; // Position of the claim in the list of the Merkle tree's leaf nodes.
@@ -43,7 +42,7 @@ abstract contract RollingMerkleDistributorTypes {
 }
 
 /**
- * @notice A rolling Merkle distributor. At the end of ever claim window, a privileged account can deploy
+ * @notice A rolling Merkle distributor. At the end of every claim window, a privileged account can deploy
  * a new root (and window) to distribute more funds. The stakeholder must also supply the funds to be distributed by
  * the contract in a separate transaction. The intention is for the stakeholder to rollover unclaimed funds from the
  * previous window into the next Merkle root, so users can claim anytime and never "miss" their chance to do so. This
@@ -53,7 +52,6 @@ abstract contract RollingMerkleDistributorTypes {
  * [Uniswap merkle distributor](https://github.com/Uniswap/merkle-distributor/blob/master/contracts/MerkleDistributor.sol).
  */
 contract RollingMerkleDistributor is RollingMerkleDistributorTypes, EndaomentAuth {
-
     /// @notice The ERC20 token that will be distributed by this contract.
     IERC20 public immutable token;
 
@@ -78,18 +76,13 @@ contract RollingMerkleDistributor is RollingMerkleDistributorTypes, EndaomentAut
      * @param _initialPeriod The length of time, in seconds, of the initial claim window.
      * @param _authority The address of the authority which defines permissions for rollovers.
      */
-    constructor(
-        IERC20 _token,
-        bytes32 _initialRoot,
-        uint256 _initialPeriod,
-        RolesAuthority _authority
-    ) {
+    constructor(IERC20 _token, bytes32 _initialRoot, uint256 _initialPeriod, RolesAuthority _authority) {
         token = _token;
 
         merkleRoot = _initialRoot;
         windowEnd = block.timestamp + _initialPeriod;
 
-        initialize(_authority, "");
+        __initEndaomentAuth(_authority, "");
 
         emit MerkleRootRolledOver(merkleRoot, windowEnd);
     }
@@ -110,7 +103,7 @@ contract RollingMerkleDistributor is RollingMerkleDistributorTypes, EndaomentAut
             windowEnd = block.timestamp + _period;
         }
 
-        emit MerkleRootRolledOver(merkleRoot , windowEnd);
+        emit MerkleRootRolledOver(merkleRoot, windowEnd);
     }
 
     /**

@@ -1,15 +1,15 @@
-// SPDX-License-Identifier: BSD 3-Claused
+// SPDX-License-Identifier: BSD 3-Clause
 pragma solidity 0.8.13;
 
-import { DeployTest } from "./utils/DeployTest.sol";
+import {DeployTest} from "./utils/DeployTest.sol";
 
 contract NDAOTest is DeployTest {
     error Unauthorized();
+
     bytes ErrorUnauthorized = abi.encodeWithSelector(Unauthorized.selector);
 }
 
 contract Deployment is NDAOTest {
-
     function test_Deployment() public {
         assertEq(ndao.name(), "NDAO");
         assertEq(ndao.symbol(), "NDAO");
@@ -77,10 +77,7 @@ contract Minting is NDAOTest {
     }
 
     function testFuzz_DoesNotAllowNonAuthorizedAccountToMint(address _notAdmin, address _to, uint256 _amount) public {
-        vm.assume(
-            _notAdmin != board &&
-            _notAdmin != capitalCommittee
-        );
+        vm.assume(_notAdmin != board && _notAdmin != capitalCommittee);
 
         vm.prank(_notAdmin);
         vm.expectRevert(ErrorUnauthorized);

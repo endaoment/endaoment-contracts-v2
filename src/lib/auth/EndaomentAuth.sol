@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity >=0.8.0;
 
-import { RolesAuthority } from './authorities/RolesAuthority.sol';
+import {RolesAuthority} from "./authorities/RolesAuthority.sol";
 
 /**
  * @notice An abstract Auth that contracts in the Endaoment ecosystem can inherit from. It is based on
@@ -18,7 +18,6 @@ import { RolesAuthority } from './authorities/RolesAuthority.sol';
  *
  */
 abstract contract EndaomentAuth {
-
     /// @notice Thrown when an account without proper permissions calls a privileged method.
     error Unauthorized();
 
@@ -46,7 +45,7 @@ abstract contract EndaomentAuth {
      * @param _specialTarget The bytes that this contract will pass as the "target" when looking up permissions
      * from the authority. If set to empty bytes, this contract will pass its own address instead.
      */
-    function initialize(RolesAuthority _authority, bytes20 _specialTarget) public virtual {
+    function __initEndaomentAuth(RolesAuthority _authority, bytes20 _specialTarget) internal virtual {
         if (address(_authority) == address(0)) revert InvalidAuthority();
         if (address(authority) != address(0)) revert AlreadyInitialized();
         authority = _authority;
@@ -56,17 +55,17 @@ abstract contract EndaomentAuth {
     /**
      * @notice Modifier for methods that require authorization to execute.
      */
-    modifier requiresAuth virtual {
-        if(!isAuthorized(msg.sender, msg.sig)) revert Unauthorized();
+    modifier requiresAuth() virtual {
+        if (!isAuthorized(msg.sender, msg.sig)) revert Unauthorized();
         _;
     }
 
-     /**
+    /**
      * @notice Internal method that asks the authority whether the caller has permission to execute a method.
      * @param user The account attempting to call a permissioned method on this contract
      * @param functionSig The signature hash of the permissioned method being invoked.
      */
-    function isAuthorized(address user, bytes4 functionSig) internal virtual view returns (bool) {
+    function isAuthorized(address user, bytes4 functionSig) internal view virtual returns (bool) {
         RolesAuthority auth = authority; // Memoizing authority saves us a warm SLOAD, around 100 gas.
         address _target = specialTarget == "" ? address(this) : address(specialTarget);
 

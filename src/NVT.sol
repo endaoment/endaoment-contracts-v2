@@ -1,11 +1,11 @@
 //SPDX-License-Identifier: BSD 3-Clause
 pragma solidity 0.8.13;
 
-import { ERC20Votes } from "openzeppelin-contracts/contracts/token/ERC20/extensions/ERC20Votes.sol";
-import { ERC20Permit } from "openzeppelin-contracts/contracts/token/ERC20/extensions/draft-ERC20Permit.sol";
-import { ERC20 } from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
-import { EndaomentAuth } from "./lib/auth/EndaomentAuth.sol";
-import { RolesAuthority } from "./lib/auth/authorities/RolesAuthority.sol";
+import {ERC20Votes} from "openzeppelin-contracts/contracts/token/ERC20/extensions/ERC20Votes.sol";
+import {ERC20Permit} from "openzeppelin-contracts/contracts/token/ERC20/extensions/draft-ERC20Permit.sol";
+import {ERC20} from "openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
+import {EndaomentAuth} from "./lib/auth/EndaomentAuth.sol";
+import {RolesAuthority} from "./lib/auth/authorities/RolesAuthority.sol";
 
 /**
  * @notice Subset of the ERC20 interface used for NVT's reference to the NDAO token.
@@ -21,11 +21,9 @@ interface INDAO {
  * @notice Defines the data, error, and event types used by the NVT token contract.
  */
 abstract contract NVTTypes {
-
     /// @notice Data associated with an NDAO deposit that has been vote locked for NVT.
     struct Deposit {
         uint40 date; // Unix timestamp of when the deposit was made. Overflows in the year 36,835.
-
         // Each param can account for >20 trillion tokens before overflowing.
         uint104 amount; // The amount of NDAO initially deposited.
         uint104 balance; // The balance of NDAO that has not yet been unlocked by the user.
@@ -43,11 +41,9 @@ abstract contract NVTTypes {
         // that point. This is acceptable, and allows packing the first 4 params in 1 slot.
         uint32 startDate; // Unix timestamp of when the vesting started.
         uint32 vestDate; // Unix timestamp of when fully vested.
-
         // Each param can account for ~79 billion tokens before overflowing.
         uint96 amount; // Amount of tokens originally locked for vesting.
         uint96 balance; // The balance of tokens (vested & unvested) that have not yet been claimed by the vestee.
-
         bool wasClawedBack; // Flag denoting if this vesting distribution was clawed back.
     }
 
@@ -87,7 +83,6 @@ abstract contract NVTTypes {
  * over time back to the user.
  */
 contract NVT is NVTTypes, ERC20Votes, EndaomentAuth {
-
     // --- Storage Variables ---
 
     /// @notice The total time over which a locked deposit of NDAO becomes unlocked to the user linearly.
@@ -108,12 +103,9 @@ contract NVT is NVTTypes, ERC20Votes, EndaomentAuth {
      * @param _ndao The address of the NDAO Token contract.
      * @param _authority The address of the authority which defines permissions for vests & clawbacks.
      */
-    constructor(
-        INDAO _ndao,
-        RolesAuthority _authority
-    ) ERC20("NDAO Voting Token", "NVT") ERC20Permit("NVT") {
+    constructor(INDAO _ndao, RolesAuthority _authority) ERC20("NDAO Voting Token", "NVT") ERC20Permit("NVT") {
         ndao = _ndao;
-        initialize(_authority, "");
+        __initEndaomentAuth(_authority, "");
     }
 
     // --- On-chain View Methods ---
@@ -126,11 +118,11 @@ contract NVT is NVTTypes, ERC20Votes, EndaomentAuth {
      * @param _timestamp The Unix timestamp at which the available NDAO will be calculated.
      * @return _available The amount of NVT that can be unlocked for NDAO.
      */
-    function availableForWithdrawal(
-        address _holder,
-        uint256 _index,
-        uint256 _timestamp
-    ) public view returns (uint256) {
+    function availableForWithdrawal(address _holder, uint256 _index, uint256 _timestamp)
+        public
+        view
+        returns (uint256)
+    {
         Deposit memory _deposit = deposits[_holder][_index];
 
         uint256 _elapsed;
@@ -202,38 +194,51 @@ contract NVT is NVTTypes, ERC20Votes, EndaomentAuth {
 
     // --- ERC-20 Overrides ---
 
-     /// @dev We override this because NVT is non-transferable. Always reverts with TransferDisallowed.
-    function transfer(address /* to */, uint256 /* amount */) public pure override returns (bool) {
+    /// @dev We override this because NVT is non-transferable. Always reverts with TransferDisallowed.
+    function transfer(address, /* to */ uint256 /* amount */ ) public pure override returns (bool) {
         revert TransferDisallowed();
     }
 
-     /// @dev We override this because NVT is non-transferable. Always reverts with TransferDisallowed.
-    function transferFrom(
-        address /* from */,
-        address /* to */,
-        uint256 /* amount */
-    ) public pure override returns (bool) {
-        revert TransferDisallowed();
-    }
-
-     /// @dev We override this to prevent users wasting gas. Always reverts with TransferDisallowed.
-    function approve(address /* spender */, uint256 /* amount */) public pure override returns (bool) {
+    /// @dev We override this because NVT is non-transferable. Always reverts with TransferDisallowed.
+    function transferFrom(address, /* from */ address, /* to */ uint256 /* amount */ )
+        public
+        pure
+        override
+        returns (bool)
+    {
         revert TransferDisallowed();
     }
 
     /// @dev We override this to prevent users wasting gas. Always reverts with TransferDisallowed.
-    function increaseAllowance(
-        address /* spender */,
-        uint256 /* addedValue */
-    ) public pure override returns (bool) {
+    function approve(address, /* spender */ uint256 /* amount */ ) public pure override returns (bool) {
         revert TransferDisallowed();
     }
 
     /// @dev We override this to prevent users wasting gas. Always reverts with TransferDisallowed.
-    function decreaseAllowance(
-        address /* spender */,
-        uint256 /* subtractedValue */
-    ) public pure override returns (bool) {
+    function permit(
+        address, /* owner */
+        address, /* spender */
+        uint256, /* value */
+        uint256, /* deadline */
+        uint8, /* v */
+        bytes32, /* r */
+        bytes32 /* s */
+    ) public pure override {
+        revert TransferDisallowed();
+    }
+
+    /// @dev We override this to prevent users wasting gas. Always reverts with TransferDisallowed.
+    function increaseAllowance(address, /* spender */ uint256 /* addedValue */ ) public pure override returns (bool) {
+        revert TransferDisallowed();
+    }
+
+    /// @dev We override this to prevent users wasting gas. Always reverts with TransferDisallowed.
+    function decreaseAllowance(address, /* spender */ uint256 /* subtractedValue */ )
+        public
+        pure
+        override
+        returns (bool)
+    {
         revert TransferDisallowed();
     }
 
@@ -250,11 +255,7 @@ contract NVT is NVTTypes, ERC20Votes, EndaomentAuth {
         if (_amount > type(uint104).max) revert InvalidAmount();
 
         deposits[msg.sender].push(
-            Deposit({
-                date: uint40(block.timestamp),
-                amount: uint104(_amount),
-                balance: uint104(_amount)
-            })
+            Deposit({date: uint40(block.timestamp), amount: uint104(_amount), balance: uint104(_amount)})
         );
 
         _mint(msg.sender, _amount);
@@ -322,7 +323,7 @@ contract NVT is NVTTypes, ERC20Votes, EndaomentAuth {
     }
 
     /**
-     * @notice Returns all unvested tokens to the authorized caller for a given vestee. Cannot clawback any vested 
+     * @notice Returns all unvested tokens to the authorized caller for a given vestee. Cannot clawback any vested
      * tokens, whether they have been unlocked or not.
      * @param _vestee The vestee to claw back from.
      */
@@ -389,7 +390,7 @@ contract NVT is NVTTypes, ERC20Votes, EndaomentAuth {
         return vestingSchedules[_vestee];
     }
 
-     /**
+    /**
      * @notice Returns a list of all past deposit indices which still have a locked NDAO balance. This method is
      * intended only for off-chain use for the ease of integration. It is extremely inefficient.
      * @param _holder The NVT token holder.
@@ -440,11 +441,11 @@ contract NVT is NVTTypes, ERC20Votes, EndaomentAuth {
      * @param _timestamp The unix timestamp at which the available NDAO will be calculated.
      * @return balance The sum of all NDAO tokens that are available to be unlocked across all deposits.
      */
-    function getTotalAvailableForWithdrawal(
-        address _holder,
-        uint256 _startIndex,
-        uint256 _timestamp
-    ) external view returns (uint256) {
+    function getTotalAvailableForWithdrawal(address _holder, uint256 _startIndex, uint256 _timestamp)
+        external
+        view
+        returns (uint256)
+    {
         uint256[] memory _activeIndices = getActiveDepositIndices(_holder, _startIndex);
 
         uint256 _totalAvailable = 0;

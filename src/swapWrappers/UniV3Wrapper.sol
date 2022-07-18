@@ -1,11 +1,11 @@
 //SPDX-License-Identifier: BSD 3-Clause
 pragma solidity 0.8.13;
 
-import { ISwapWrapper, ETHAmountInMismatch } from "../interfaces/ISwapWrapper.sol";
-import { ISwapRouter } from "../lib/IUniswapV3SwapRouter.sol";
-import { ERC20 } from "solmate/tokens/ERC20.sol";
-import { IWETH9 } from "../lib/IWETH9.sol";
-import { SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
+import {ISwapWrapper, ETHAmountInMismatch} from "../interfaces/ISwapWrapper.sol";
+import {ISwapRouter} from "../lib/IUniswapV3SwapRouter.sol";
+import {ERC20} from "solmate/tokens/ERC20.sol";
+import {IWETH9} from "../lib/IWETH9.sol";
+import {SafeTransferLib} from "solmate/utils/SafeTransferLib.sol";
 
 contract UniV3Wrapper is ISwapWrapper {
     using SafeTransferLib for ERC20;
@@ -20,7 +20,7 @@ contract UniV3Wrapper is ISwapWrapper {
     string public name;
 
     /// @dev Address we use to represent ETH.
-    address constant internal eth = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+    address internal constant eth = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
     error PathMismatch();
 
@@ -41,17 +41,21 @@ contract UniV3Wrapper is ISwapWrapper {
      * @param _recipient Recipient of the swap output.
      * @param _amount Amount of `_tokenIn`.
      * @param _data Abi encoded `deadline`, `amountOutMinimum`, and `path` (https://docs.uniswap.org/protocol/guides/swaps/multihop-swaps#input-parameters).
-        e.g. `bytes memory _data = bytes.concat(
-              abi.encode(uint256(1649787227), uint256(0)),
-              bytes.concat(address(weth), abi.encodePacked(uint24(fee)), address(_tokenOut))
-            );`
+     *     e.g. `bytes memory _data = bytes.concat(
+     *           abi.encode(uint256(1649787227), uint256(0)),
+     *           bytes.concat(address(weth), abi.encodePacked(uint24(fee)), address(_tokenOut))
+     *         );`
      * @dev In the case of an ERC20 swap, this contract first possesses the `_amount` via `transferFrom`
      * and therefore preconditionally requires an ERC20 approval from the caller.
      */
-    function swap(address _tokenIn, address _tokenOut, address _recipient, uint256 _amount, bytes calldata _data) external payable returns (uint256) {
+    function swap(address _tokenIn, address _tokenOut, address _recipient, uint256 _amount, bytes calldata _data)
+        external
+        payable
+        returns (uint256)
+    {
         // If token is ETH and value was sent, ensure the value matches the swap input amount.
         bool _isInputEth = _tokenIn == eth;
-        if ((_isInputEth && msg.value != _amount) || (!_isInputEth && msg.value > 0)) revert ETHAmountInMismatch(); 
+        if ((_isInputEth && msg.value != _amount) || (!_isInputEth && msg.value > 0)) revert ETHAmountInMismatch();
 
         // If caller isn't sending ETH, we need to transfer in tokens and approve the router
         if (!_isInputEth) {
@@ -83,7 +87,7 @@ contract UniV3Wrapper is ISwapWrapper {
             });
 
             // Execute the swap
-            _amountOut = swapRouter.exactInput{value:msg.value}(params);
+            _amountOut = swapRouter.exactInput{value: msg.value}(params);
         }
         // Unwrap WETH for ETH if required.
         if (_tokenOut == eth) {
@@ -101,7 +105,7 @@ contract UniV3Wrapper is ISwapWrapper {
 
     /// @dev This method is used to safety check that the provided swap path is swapping the intended tokens.
     function _assertMatchingTokenPathPair(address _token, address _path) private view {
-        if(!(_path == _token || (_path == address(weth) && _token == eth))) revert PathMismatch();
+        if (!(_path == _token || (_path == address(weth) && _token == eth))) revert PathMismatch();
     }
 
     /// @notice Required to receive ETH on `weth.withdraw()`

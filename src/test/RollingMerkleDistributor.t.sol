@@ -1,10 +1,10 @@
-// SPDX-License-Identifier: BSD 3-Claused
+// SPDX-License-Identifier: BSD 3-Clause
 pragma solidity 0.8.13;
 
-import { DeployTest } from "./utils/DeployTest.sol";
-import { IERC20 } from "openzeppelin-contracts/contracts/interfaces/IERC20.sol";
-import { Merkle } from "murky/Merkle.sol";
-import { RollingMerkleDistributor, RollingMerkleDistributorTypes } from "../RollingMerkleDistributor.sol";
+import {DeployTest} from "./utils/DeployTest.sol";
+import {IERC20} from "openzeppelin-contracts/contracts/interfaces/IERC20.sol";
+import {Merkle} from "murky/Merkle.sol";
+import {RollingMerkleDistributor, RollingMerkleDistributorTypes} from "../RollingMerkleDistributor.sol";
 
 contract RollingMerkleDistributorTest is RollingMerkleDistributorTypes, DeployTest {
     Merkle merkle; // Used as lib for generating roots/proofs for tests.
@@ -61,11 +61,10 @@ contract RollingMerkleDistributorTest is RollingMerkleDistributorTypes, DeployTe
     // Takes some parameters and a seed and uses it to create a large pseudorandom Merkle tree with the
     // requested claimant and amount stuffed into somewhere. Returns the Merkle root, and the proof and
     // index for the claimant.
-    function makeBigTree(
-        address _claimant,
-        uint256 _amount,
-        uint256 _seed
-    ) public returns (bytes32 _root, bytes32[] memory _proof, uint256 _claimantIndex) {
+    function makeBigTree(address _claimant, uint256 _amount, uint256 _seed)
+        public
+        returns (bytes32 _root, bytes32[] memory _proof, uint256 _claimantIndex)
+    {
         uint256 _seedHash1 = uint256(keccak256(abi.encode(_seed)));
         uint256 _seedHash2 = uint256(keccak256(abi.encode(_seedHash1)));
 
@@ -79,11 +78,7 @@ contract RollingMerkleDistributorTest is RollingMerkleDistributorTypes, DeployTe
             if (_index == _claimantIndex) {
                 _node = makeNode(_index, _claimant, _amount);
             } else {
-                _node = makeNode(
-                    _index,
-                    makeAddress(_index, _seed),
-                    bound(_seedHash2, 0, MAX_AMOUNT)
-                );
+                _node = makeNode(_index, makeAddress(_index, _seed), bound(_seedHash2, 0, MAX_AMOUNT));
             }
 
             _tree[_index] = _node;
@@ -96,7 +91,6 @@ contract RollingMerkleDistributorTest is RollingMerkleDistributorTypes, DeployTe
 
 // Tests for deployment of the RollingMerkleDistributor.
 contract Deployment is RollingMerkleDistributorTest {
-
     function test_Deployment() public {
         assertEq(address(distributor.authority()), address(globalTestRegistry));
         assertEq(address(distributor.token()), address(token));
@@ -113,7 +107,8 @@ contract Deployment is RollingMerkleDistributorTest {
         _period = bound(_period, 1, MAX_FUZZ_PERIOD);
 
         expectEvent_RolledOver(_root, block.timestamp + _period);
-        RollingMerkleDistributor _distributor = new RollingMerkleDistributor(IERC20(_token), _root, _period, globalTestRegistry);
+        RollingMerkleDistributor _distributor =
+            new RollingMerkleDistributor(IERC20(_token), _root, _period, globalTestRegistry);
 
         assertEq(address(_distributor.authority()), address(globalTestRegistry));
         assertEq(address(_distributor.token()), _token);
@@ -124,12 +119,8 @@ contract Deployment is RollingMerkleDistributorTest {
 
 // Tests the ability to rollover the merkle root and claim window.
 contract Rollover is RollingMerkleDistributorTest {
-
     function testFuzz_NonAuthorizedCannotRollover(address _nonAdmin, bytes32 _root, uint256 _period) public {
-        vm.assume(
-            _nonAdmin != board &&
-            _nonAdmin != capitalCommittee
-        );
+        vm.assume(_nonAdmin != board && _nonAdmin != capitalCommittee);
         _period = bound(_period, 1, MAX_FUZZ_PERIOD);
 
         vm.expectRevert(Unauthorized.selector);
@@ -206,38 +197,23 @@ contract Rollover is RollingMerkleDistributorTest {
 
 // Tests making claims from the Rolling Merkle Distributor.
 contract Claim is RollingMerkleDistributorTest {
-
-    function testFuzz_CannotClaimOutsideOfWindow(
-        uint256 _index,
-        address _claimant,
-        uint256 _amount,
-        bytes32 _data
-    ) public {
+    function testFuzz_CannotClaimOutsideOfWindow(uint256 _index, address _claimant, uint256 _amount, bytes32 _data)
+        public
+    {
         jumpPastWindow();
 
         bytes32[] memory _proof = new bytes32[](1);
         _proof[0] = _data;
-        Claim memory _claim = Claim({
-            index: _index,
-            claimant: _claimant,
-            amount: _amount,
-            merkleProof: _proof
-        });
+        Claim memory _claim = Claim({index: _index, claimant: _claimant, amount: _amount, merkleProof: _proof});
 
         vm.expectRevert(OutsideClaimWindow.selector);
         distributor.claim(_claim);
     }
 
-    function testFuzz_CanMakeTwoClaims(
-        address _claimant1,
-        uint256 _amount1,
-        address _claimant2,
-        uint256 _amount2
-    ) public {
-        vm.assume(
-            _claimant1 != address(distributor) &&
-            _claimant2 != address(distributor)
-        );
+    function testFuzz_CanMakeTwoClaims(address _claimant1, uint256 _amount1, address _claimant2, uint256 _amount2)
+        public
+    {
+        vm.assume(_claimant1 != address(distributor) && _claimant2 != address(distributor));
         vm.assume(_claimant1 != _claimant2);
         _amount1 = bound(_amount1, 0, type(uint128).max);
         _amount2 = bound(_amount1, 0, type(uint128).max);
@@ -265,12 +241,7 @@ contract Claim is RollingMerkleDistributorTest {
         uint256 _window = distributor.windowEnd();
 
         // Make a claim 1
-        Claim memory _claim1 = Claim({
-            index: 0,
-            claimant: _claimant1,
-            amount: _amount1,
-            merkleProof: _proof1
-        });
+        Claim memory _claim1 = Claim({index: 0, claimant: _claimant1, amount: _amount1, merkleProof: _proof1});
         expectEvent_Claimed(_window, 0, _claimant1, _amount1);
         distributor.claim(_claim1);
 
@@ -279,13 +250,8 @@ contract Claim is RollingMerkleDistributorTest {
         assertEq(ndao.balanceOf(_claimant1), _amount1);
         assertEq(ndao.balanceOf(address(distributor)), _amount2);
 
-         // Make a claim 2
-        Claim memory _claim2 = Claim({
-            index: 1,
-            claimant: _claimant2,
-            amount: _amount2,
-            merkleProof: _proof2
-        });
+        // Make a claim 2
+        Claim memory _claim2 = Claim({index: 1, claimant: _claimant2, amount: _amount2, merkleProof: _proof2});
         expectEvent_Claimed(_window, 1, _claimant2, _amount2);
         distributor.claim(_claim2);
 
@@ -311,12 +277,7 @@ contract Claim is RollingMerkleDistributorTest {
         uint256 _window = distributor.windowEnd();
 
         // Make a claim.
-        Claim memory _claim = Claim({
-            index: _index,
-            claimant: _claimant,
-            amount: _amount,
-            merkleProof: _proof
-        });
+        Claim memory _claim = Claim({index: _index, claimant: _claimant, amount: _amount, merkleProof: _proof});
         expectEvent_Claimed(_window, _index, _claimant, _amount);
         distributor.claim(_claim);
 
@@ -341,12 +302,7 @@ contract Claim is RollingMerkleDistributorTest {
         uint256 _window = baseDistributor.windowEnd();
 
         // Make a claim.
-        Claim memory _claim = Claim({
-            index: _index,
-            claimant: _claimant,
-            amount: _amount,
-            merkleProof: _proof
-        });
+        Claim memory _claim = Claim({index: _index, claimant: _claimant, amount: _amount, merkleProof: _proof});
         expectEvent_Claimed(_window, _index, _claimant, _amount);
         baseDistributor.claim(_claim);
 
@@ -374,12 +330,7 @@ contract Claim is RollingMerkleDistributorTest {
         vm.warp(_window); // jump to the exact second the window ends
 
         // Make a claim.
-        Claim memory _claim = Claim({
-            index: _index,
-            claimant: _claimant,
-            amount: _amount,
-            merkleProof: _proof
-        });
+        Claim memory _claim = Claim({index: _index, claimant: _claimant, amount: _amount, merkleProof: _proof});
         expectEvent_Claimed(_window, _index, _claimant, _amount);
         distributor.claim(_claim);
 
@@ -411,12 +362,7 @@ contract Claim is RollingMerkleDistributorTest {
         uint256 _window = distributor.windowEnd();
 
         // Make a claim.
-        Claim memory _claim1 = Claim({
-            index: _index,
-            claimant: _claimant,
-            amount: _amount1,
-            merkleProof: _proof
-        });
+        Claim memory _claim1 = Claim({index: _index, claimant: _claimant, amount: _amount1, merkleProof: _proof});
         distributor.claim(_claim1);
 
         assertTrue(distributor.isClaimed(_window, _index));
@@ -430,12 +376,7 @@ contract Claim is RollingMerkleDistributorTest {
         _window = distributor.windowEnd();
 
         // Make another claim.
-         Claim memory _claim2 = Claim({
-            index: _index,
-            claimant: _claimant,
-            amount: _amount2,
-            merkleProof: _proof
-        });
+        Claim memory _claim2 = Claim({index: _index, claimant: _claimant, amount: _amount2, merkleProof: _proof});
         vm.prank(_claimant);
         expectEvent_Claimed(_window, _index, _claimant, _amount2);
         distributor.claim(_claim2);
@@ -461,12 +402,7 @@ contract Claim is RollingMerkleDistributorTest {
         uint256 _window = distributor.windowEnd();
 
         // Make a claim.
-        Claim memory _claim = Claim({
-            index: _index,
-            claimant: _claimant,
-            amount: _amount,
-            merkleProof: _proof
-        });
+        Claim memory _claim = Claim({index: _index, claimant: _claimant, amount: _amount, merkleProof: _proof});
         distributor.claim(_claim);
 
         assertTrue(distributor.isClaimed(_window, _index));
@@ -483,7 +419,7 @@ contract Claim is RollingMerkleDistributorTest {
         jumpPastWindow();
 
         // Generate Merkle data.
-        (bytes32 _root, , uint256 _index) = makeBigTree(_claimant, _amount, _seed);
+        (bytes32 _root,, uint256 _index) = makeBigTree(_claimant, _amount, _seed);
         bytes32[] memory _badProof = new bytes32[](1);
         _badProof[0] = keccak256(abi.encode(_seed));
 
@@ -495,12 +431,7 @@ contract Claim is RollingMerkleDistributorTest {
         vm.stopPrank();
 
         // Make a claim.
-        Claim memory _claim = Claim({
-            index: _index,
-            claimant: _claimant,
-            amount: _amount,
-            merkleProof: _badProof
-        });
+        Claim memory _claim = Claim({index: _index, claimant: _claimant, amount: _amount, merkleProof: _badProof});
         vm.expectRevert(InvalidProof.selector);
         distributor.claim(_claim);
     }
@@ -522,32 +453,17 @@ contract Claim is RollingMerkleDistributorTest {
         uint256 _window = distributor.windowEnd();
 
         // Make a claim with the wrong index.
-        Claim memory _claim = Claim({
-            index: _index + 1,
-            claimant: _claimant,
-            amount: _amount,
-            merkleProof: _proof
-        });
+        Claim memory _claim = Claim({index: _index + 1, claimant: _claimant, amount: _amount, merkleProof: _proof});
         vm.expectRevert(InvalidProof.selector);
         distributor.claim(_claim);
 
         // Make a claim with the wrong claimant.
-        _claim = Claim({
-            index: _index,
-            claimant: makeAddress(_index, _seed),
-            amount: _amount,
-            merkleProof: _proof
-        });
+        _claim = Claim({index: _index, claimant: makeAddress(_index, _seed), amount: _amount, merkleProof: _proof});
         vm.expectRevert(InvalidProof.selector);
         distributor.claim(_claim);
 
         // Make a claim with the wrong amount.
-        _claim = Claim({
-            index: _index,
-            claimant: _claimant,
-            amount: _amount + 1,
-            merkleProof: _proof
-        });
+        _claim = Claim({index: _index, claimant: _claimant, amount: _amount + 1, merkleProof: _proof});
         vm.expectRevert(InvalidProof.selector);
         distributor.claim(_claim);
 
@@ -555,10 +471,7 @@ contract Claim is RollingMerkleDistributorTest {
     }
 
     function testFuzz_CanMakeAClaimFromAnInitialDeployment(address _claimant, uint256 _amount, uint256 _seed) public {
-        vm.assume(
-            _claimant != address(distributor) &&
-            _claimant != board
-        );
+        vm.assume(_claimant != address(distributor) && _claimant != board);
         _amount = bound(_amount, 0, MAX_AMOUNT);
 
         // Generate Merkle data.
@@ -574,12 +487,7 @@ contract Claim is RollingMerkleDistributorTest {
         ndao.mint(address(_distributor), type(uint128).max);
 
         // Make a claim.
-        Claim memory _claim = Claim({
-            index: _index,
-            claimant: _claimant,
-            amount: _amount,
-            merkleProof: _proof
-        });
+        Claim memory _claim = Claim({index: _index, claimant: _claimant, amount: _amount, merkleProof: _proof});
         expectEvent_Claimed(_distributor.windowEnd(), _index, _claimant, _amount);
         _distributor.claim(_claim);
 

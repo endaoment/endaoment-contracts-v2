@@ -11,10 +11,16 @@ build:
 clean:
 	forge clean
 
-test:
-	forge test --sender 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 --no-match-path "*.fork.t.sol" --match-path "*.t.sol" && \
-	forge test --sender 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 --fork-url "${RPC_URL}" --fork-block-number 14500000 --match-path "*.fork.t.sol" --no-match-path  "{*CurveWrapper.fork.t.sol,*MultiSwapWrapper.fork.t.sol}" && \
-	forge test --sender 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 --fork-url "${RPC_URL}" --fork-block-number 14787296 --match-path "{*CurveWrapper.fork.t.sol,*MultiSwapWrapper.fork.t.sol}"
+local:
+	anvil --fork-url "${RPC_URL}" --fork-block-number 15892404
 
-snapshot:
-	forge snapshot --match-path src/test/Gas.sol --fork-url "${RPC_URL}" --fork-block-number 14500000
+# test will create broadcast directory for deployment/migration testing if it doesn't exist
+test: create-broadcast-folder
+	forge test
+
+create-broadcast-folder:
+	mkdir -p broadcast
+
+# Don't worry, the PK used here is a well known PK of the test mnemonic ;)
+local-deploy:
+	forge script script/LocalDeploy.s.sol --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 --broadcast  --rpc-url http://127.0.0.1:8545

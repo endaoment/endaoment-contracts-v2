@@ -1,15 +1,15 @@
 //SPDX-License-Identifier: BSD 3-Clause
 pragma solidity 0.8.13;
 
-import { Clones } from "openzeppelin-contracts/contracts/proxy/Clones.sol";
-import { ERC20 } from "solmate/tokens/ERC20.sol";
-import { SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
-import { Registry } from "./Registry.sol";
-import { EntityFactory } from "./EntityFactory.sol";
-import { Entity } from "./Entity.sol";
-import { Org } from "./Org.sol";
-import { Fund } from "./Fund.sol";
-import { ISwapWrapper } from "./interfaces/ISwapWrapper.sol";
+import {Clones} from "openzeppelin-contracts/contracts/proxy/Clones.sol";
+import {ERC20} from "solmate/tokens/ERC20.sol";
+import {SafeTransferLib} from "solmate/utils/SafeTransferLib.sol";
+import {Registry} from "./Registry.sol";
+import {EntityFactory} from "./EntityFactory.sol";
+import {Entity} from "./Entity.sol";
+import {Org} from "./Org.sol";
+import {Fund} from "./Fund.sol";
+import {ISwapWrapper} from "./interfaces/ISwapWrapper.sol";
 
 /**
  * @notice This contract is the factory for both the Org and Fund objects.
@@ -48,7 +48,13 @@ contract OrgFundFactory is EntityFactory {
      * @return _fund The deployed Fund.
      */
     function deployFund(address _manager, bytes32 _salt) public returns (Fund _fund) {
-        _fund = Fund(Clones.cloneDeterministic(address(fundImplementation), _salt));
+        _fund = Fund(
+            payable(
+                Clones.cloneDeterministic(
+                    address(fundImplementation), keccak256(bytes.concat(bytes20(_manager), _salt))
+                )
+            )
+        );
         _fund.initialize(registry, _manager);
         registry.setEntityActive(_fund);
         emit EntityDeployed(address(_fund), _fund.entityType(), _manager);
@@ -92,11 +98,10 @@ contract OrgFundFactory is EntityFactory {
     /**
      * @notice Deploys an Org.
      * @param _orgId The Org's ID for tax purposes.
-     * @param _salt A 32-byte value used to create the contract at a deterministic address.
      * @return _org The deployed Org.
      */
-    function deployOrg(bytes32 _orgId, bytes32 _salt) public returns (Org _org) {
-        _org = Org(Clones.cloneDeterministic(address(orgImplementation), _salt));
+    function deployOrg(bytes32 _orgId) public returns (Org _org) {
+        _org = Org(payable(Clones.cloneDeterministic(address(orgImplementation), _orgId)));
         _org.initialize(registry, _orgId);
         registry.setEntityActive(_org);
         emit EntityDeployed(address(_org), _org.entityType(), _org.manager());
@@ -105,12 +110,11 @@ contract OrgFundFactory is EntityFactory {
     /**
      * @notice Deploys an Org then pulls base token from the sender and donates to it.
      * @param _orgId The Org's ID for tax purposes.
-     * @param _salt A 32-byte value used to create the contract at a deterministic address.
      * @param _amount The amount of base token to donate.
      * @return _org The deployed Org.
      */
-    function deployOrgAndDonate(bytes32 _orgId, bytes32 _salt, uint256 _amount) external returns (Org _org) {
-        _org = deployOrg(_orgId, _salt);
+    function deployOrgAndDonate(bytes32 _orgId, uint256 _amount) external returns (Org _org) {
+        _org = deployOrg(_orgId);
         _donate(_org, _amount);
     }
 
@@ -118,7 +122,6 @@ contract OrgFundFactory is EntityFactory {
      * @notice Deploys a new Org, then pulls a ETH or ERC20 tokens, swaps them to base tokens,
      * and donates to the new Org.
      * @param _orgId The Org's ID for tax purposes.
-     * @param _salt A 32-byte value used to create the contract at a deterministic address.
      * @param _swapWrapper The swap wrapper to use for the donation. Must be whitelisted on the Registry.
      * @param _tokenIn The address of the ERC20 token to swap and donate, or ETH_PLACEHOLDER if donating ETH.
      * @param _amountIn The amount of tokens or ETH being swapped and donated.
@@ -127,34 +130,36 @@ contract OrgFundFactory is EntityFactory {
      */
     function deployOrgSwapAndDonate(
         bytes32 _orgId,
-        bytes32 _salt,
         ISwapWrapper _swapWrapper,
         address _tokenIn,
         uint256 _amountIn,
         bytes calldata _data
     ) external payable returns (Org _org) {
-        _org = deployOrg(_orgId, _salt);
+        _org = deployOrg(_orgId);
         _swapAndDonate(_org, _swapWrapper, _tokenIn, _amountIn, _data);
     }
 
     /**
      * @notice Calculates an Org contract's deployment address.
-     * @param _salt A 32-byte value used to create the contract at a deterministic address.
+     * @param _orgId Org's tax ID.
      * @return The Org's deployment address.
      * @dev This function is used off-chain by the automated tests to verify proper contract address deployment.
      */
-    function computeOrgAddress(bytes32 _salt) external view returns (address) {
-        return Clones.predictDeterministicAddress(address(orgImplementation), _salt, address(this));
+    function computeOrgAddress(bytes32 _orgId) external view returns (address) {
+        return Clones.predictDeterministicAddress(address(orgImplementation), _orgId, address(this));
     }
 
     /**
      * @notice Calculates a Fund contract's deployment address.
+     * @param _manager The manager of the fund.
      * @param _salt A 32-byte value used to create the contract at a deterministic address.
      * @return The Fund's deployment address.
      * @dev This function is used off-chain by the automated tests to verify proper contract address deployment.
      */
-    function computeFundAddress(bytes32 _salt) external view returns (address) {
-        return Clones.predictDeterministicAddress(address(fundImplementation), _salt, address(this));
+    function computeFundAddress(address _manager, bytes32 _salt) external view returns (address) {
+        return Clones.predictDeterministicAddress(
+            address(fundImplementation), keccak256(bytes.concat(bytes20(_manager), _salt)), address(this)
+        );
     }
 
     /// @dev Pulls base tokens from sender and donates them to the entity.

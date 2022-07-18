@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity >=0.8.0;
 
+// This contract is modified from Solmate only to make requiresAuth virtual on line 26
+
 /// @notice Provides a flexible and updatable auth pattern which is completely separate from application logic.
 /// @author Solmate (https://github.com/Rari-Capital/solmate/blob/main/src/auth/Auth.sol)
 /// @author Modified from Dappsys (https://github.com/dapphub/ds-auth/blob/master/src/auth.sol)
@@ -21,7 +23,7 @@ abstract contract Auth {
         emit AuthorityUpdated(msg.sender, _authority);
     }
 
-    modifier requiresAuth virtual {
+    modifier requiresAuth() virtual {
         require(isAuthorized(msg.sender, msg.sig), "UNAUTHORIZED");
 
         _;
@@ -56,9 +58,5 @@ abstract contract Auth {
 /// @author Solmate (https://github.com/Rari-Capital/solmate/blob/main/src/auth/Auth.sol)
 /// @author Modified from Dappsys (https://github.com/dapphub/ds-auth/blob/master/src/auth.sol)
 interface Authority {
-    function canCall(
-        address user,
-        address target,
-        bytes4 functionSig
-    ) external view returns (bool);
+    function canCall(address user, address target, bytes4 functionSig) external view returns (bool);
 }

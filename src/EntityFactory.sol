@@ -8,7 +8,6 @@ import "./Entity.sol";
  * @notice EntityFactory contract inherited by OrgFundFactory and future factories.
  */
 abstract contract EntityFactory {
-
     /// @notice _registry The registry to host the Entity.
     Registry public immutable registry;
 

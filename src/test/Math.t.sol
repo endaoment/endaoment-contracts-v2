@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: BSD 3-Claused
+// SPDX-License-Identifier: BSD 3-Clause
 pragma solidity 0.8.13;
 
 import "./utils/DSTestPlus.sol";
-import { Math } from "../lib/Math.sol";
+import {Math} from "../lib/Math.sol";
 
 contract MathTest is DSTestPlus {
     using Math for uint256;

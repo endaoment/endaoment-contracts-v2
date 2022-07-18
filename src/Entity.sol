@@ -1,25 +1,27 @@
 //SPDX-License-Identifier: BSD 3-Clause
 pragma solidity >=0.8.0;
+
 import "solmate/tokens/ERC20.sol";
 import "solmate/utils/SafeTransferLib.sol";
+import "./lib/ReentrancyGuard.sol";
 
-import { Registry } from  "./Registry.sol";
-import { ISwapWrapper } from "./interfaces/ISwapWrapper.sol";
-import { EndaomentAuth } from "./lib/auth/EndaomentAuth.sol";
-import { Portfolio } from "./Portfolio.sol";
-import { Math } from "./lib/Math.sol";
+import {Registry} from "./Registry.sol";
+import {ISwapWrapper} from "./interfaces/ISwapWrapper.sol";
+import {EndaomentAuth} from "./lib/auth/EndaomentAuth.sol";
+import {Portfolio} from "./Portfolio.sol";
+import {Math} from "./lib/Math.sol";
 
 error EntityInactive();
 error PortfolioInactive();
 error InsufficientFunds();
 error InvalidAction();
-error InvalidTransferAttempt();
+error BalanceMismatch();
 error CallFailed(bytes response);
 
 /**
  * @notice Entity contract inherited by Org and Fund contracts (and all future kinds of Entities).
  */
-abstract contract Entity is EndaomentAuth {
+abstract contract Entity is EndaomentAuth, ReentrancyGuard {
     using Math for uint256;
     using SafeTransferLib for ERC20;
 
@@ -42,13 +44,20 @@ abstract contract Entity is EndaomentAuth {
     event EntityManagerSet(address indexed oldManager, address indexed newManager);
 
     /// @notice Emitted when a donation is made.
-    event EntityDonationReceived(address indexed from, address indexed to, uint256 amountReceived, uint256 amountFee);
+    event EntityDonationReceived(
+        address indexed from,
+        address indexed to,
+        address indexed tokenIn,
+        uint256 amountIn,
+        uint256 amountReceived,
+        uint256 amountFee
+    );
 
     /// @notice Emitted when a payout is made from an entity.
-    event EntityFundsPaidOut(address indexed from, address indexed to, uint256 amountSent, uint256 amountFee);
+    event EntityValuePaidOut(address indexed from, address indexed to, uint256 amountSent, uint256 amountFee);
 
     /// @notice Emitted when a transfer is made between entities.
-    event EntityFundsTransferred(address indexed from, address indexed to, uint256 amountReceived, uint256 amountFee);
+    event EntityValueTransferred(address indexed from, address indexed to, uint256 amountReceived, uint256 amountFee);
 
     /// @notice Emitted when a base token reconciliation completes
     event EntityBalanceReconciled(address indexed entity, uint256 amountReceived, uint256 amountFee);
@@ -57,17 +66,20 @@ abstract contract Entity is EndaomentAuth {
     event EntityBalanceCorrected(address indexed entity, uint256 newBalance);
 
     /// @notice Emitted when a portfolio deposit is made.
-    event EntityDeposit(address indexed portfolio, uint256 baseTokenDeposited, uint256 sharesRecieved);
+    event EntityDeposit(address indexed portfolio, uint256 baseTokenDeposited, uint256 sharesReceived);
 
     /// @notice Emitted when a portfolio share redemption is made.
     event EntityRedeem(address indexed portfolio, uint256 sharesRedeemed, uint256 baseTokenReceived);
+
+    /// @notice Emitted when ether is received.
+    event EntityEthReceived(address indexed sender, uint256 amount);
 
     /**
      * @notice Modifier for methods that require auth and that the manager can access.
      * @dev Uses the same condition as `requiresAuth` but with added manager access.
      */
-    modifier requiresManager {
-        if(msg.sender != manager && !isAuthorized(msg.sender, msg.sig)) revert Unauthorized();
+    modifier requiresManager() {
+        if (msg.sender != manager && !isAuthorized(msg.sender, msg.sig)) revert Unauthorized();
         _;
     }
 
@@ -80,9 +92,10 @@ abstract contract Entity is EndaomentAuth {
      * @param _registry The registry to host the Entity.
      * @param _manager The address of the Entity's manager.
      */
-    function initialize(Registry _registry, address _manager) public virtual {
+    function __initEntity(Registry _registry, address _manager) internal {
         // Call to EndaomentAuth's initialize function ensures that this can't be called again
-        initialize(_registry, bytes20(bytes.concat("entity", bytes1(entityType()))));
+        __initEndaomentAuth(_registry, bytes20(bytes.concat("entity", bytes1(entityType()))));
+        __initReentrancyGuard();
         registry = _registry;
         manager = _manager;
         baseToken = _registry.baseToken();
@@ -121,6 +134,19 @@ abstract contract Entity is EndaomentAuth {
     }
 
     /**
+     * @notice Receives a donated amount of base tokens to be added to the entity's balance.
+     * This method can be called by permissioned actors to make a donation with a manually specified fee.
+     * @param _amount Amount donated in base token.
+     * @param _feeOverride Fee percentage as zoc.
+     * @dev Reverts if the transfer fee percentage is larger than 100% (equal to 1e4 when represented as a zoc).
+     * @dev Reverts if the token transfer fails.
+     * @dev Reverts with `Unauthorized` if the `msg.sender` is not a privileged role.
+     */
+    function donateWithAdminOverrides(uint256 _amount, uint32 _feeOverride) external virtual requiresAuth {
+        _donateWithFeeMultiplier(_amount, _feeOverride);
+    }
+
+    /**
      * @notice Receives a donated amount of base tokens to be added to the entity's balance. Transfers fee calculated by fee multiplier to treasury.
      * @param _amount Amount donated in base token.
      * @param _feeMultiplier Value indicating the percentage of the Endaoment donation fee to go to the Endaoment treasury.
@@ -128,7 +154,6 @@ abstract contract Entity is EndaomentAuth {
      * @dev Reverts if the token transfer fails.
      */
     function _donateWithFeeMultiplier(uint256 _amount, uint32 _feeMultiplier) internal virtual {
-
         (uint256 _netAmount, uint256 _fee) = _calculateFee(_amount, _feeMultiplier);
         baseToken.safeTransferFrom(msg.sender, registry.treasury(), _fee);
         baseToken.safeTransferFrom(msg.sender, address(this), _netAmount);
@@ -137,7 +162,7 @@ abstract contract Entity is EndaomentAuth {
             // unchecked as no possibility of overflow with baseToken precision
             balance += _netAmount;
         }
-        emit EntityDonationReceived(msg.sender, address(this), _amount, _fee);
+        emit EntityDonationReceived(msg.sender, address(this), address(baseToken), _amount, _amount, _fee);
     }
 
     /**
@@ -148,12 +173,11 @@ abstract contract Entity is EndaomentAuth {
      * @param _amountIn The amount of tokens or ETH being swapped and donated.
      * @param _data Additional call data required by the ISwapWrapper being used.
      */
-    function swapAndDonate(
-        ISwapWrapper _swapWrapper,
-        address _tokenIn,
-        uint256 _amountIn,
-        bytes calldata _data
-    ) external virtual payable {
+    function swapAndDonate(ISwapWrapper _swapWrapper, address _tokenIn, uint256 _amountIn, bytes calldata _data)
+        external
+        payable
+        virtual
+    {
         uint32 _feeMultiplier = registry.getDonationFee(this);
         _swapAndDonateWithFeeMultiplier(_swapWrapper, _tokenIn, _amountIn, _data, _feeMultiplier);
     }
@@ -171,7 +195,7 @@ abstract contract Entity is EndaomentAuth {
         address _tokenIn,
         uint256 _amountIn,
         bytes calldata _data
-    ) external virtual payable {
+    ) external payable virtual {
         uint32 _feeMultiplier = registry.getDonationFeeWithOverrides(this);
         _swapAndDonateWithFeeMultiplier(_swapWrapper, _tokenIn, _amountIn, _data, _feeMultiplier);
     }
@@ -183,7 +207,7 @@ abstract contract Entity is EndaomentAuth {
         uint256 _amountIn,
         bytes calldata _data,
         uint32 _feeMultiplier
-    ) internal virtual {
+    ) internal virtual nonReentrant {
         if (!registry.isSwapperSupported(_swapWrapper)) revert InvalidAction();
 
         // THINK: do we need a re-entrancy guard on this method?
@@ -193,13 +217,8 @@ abstract contract Entity is EndaomentAuth {
             ERC20(_tokenIn).safeApprove(address(_swapWrapper), _amountIn);
         }
 
-        uint256 _amountOut = _swapWrapper.swap{value: msg.value}(
-            _tokenIn,
-            address(baseToken),
-            address(this),
-            _amountIn,
-            _data
-        );
+        uint256 _amountOut =
+            _swapWrapper.swap{value: msg.value}(_tokenIn, address(baseToken), address(this), _amountIn, _data);
 
         (uint256 _netAmount, uint256 _fee) = _calculateFee(_amountOut, _feeMultiplier);
 
@@ -210,7 +229,9 @@ abstract contract Entity is EndaomentAuth {
             balance += _netAmount;
         }
 
-        emit EntityDonationReceived(msg.sender, address(this), _amountOut, _fee);
+        if (balance > baseToken.balanceOf(address(this))) revert BalanceMismatch();
+
+        emit EntityDonationReceived(msg.sender, address(this), _tokenIn, _amountIn, _amountOut, _fee);
     }
 
     /**
@@ -220,8 +241,9 @@ abstract contract Entity is EndaomentAuth {
      * @dev Reverts if the entity is inactive or if the token transfer fails.
      * @dev Reverts if the transfer fee percentage is larger than 100% (equal to 1e4 when represented as a zoc).
      * @dev Reverts with `Unauthorized` if the `msg.sender` is not the entity manager or a privileged role.
+     * @dev Renamed from `transfer` to distinguish from ERC20 transfer in 3rd party tools.
      */
-    function transfer(Entity _to, uint256 _amount) requiresManager external virtual {
+    function transferToEntity(Entity _to, uint256 _amount) external virtual requiresManager {
         uint32 _feeMultiplier = registry.getTransferFee(this, _to);
         _transferWithFeeMultiplier(_to, _amount, _feeMultiplier);
     }
@@ -234,9 +256,26 @@ abstract contract Entity is EndaomentAuth {
      * @dev Reverts if the transfer fee percentage is larger than 100% (equal to 1e4 when represented as a zoc).
      * @dev Reverts with `Unauthorized` if the `msg.sender` is not the entity manager or a privileged role.
      */
-    function transferWithOverrides(Entity _to, uint256 _amount) requiresManager external virtual {
+    function transferToEntityWithOverrides(Entity _to, uint256 _amount) external virtual requiresManager {
         uint32 _feeMultiplier = registry.getTransferFeeWithOverrides(this, _to);
         _transferWithFeeMultiplier(_to, _amount, _feeMultiplier);
+    }
+
+    /**
+     * @notice Transfers an amount of base tokens from one entity to another. Transfers fee specified by a privileged role.
+     * @param _to The entity to receive the tokens.
+     * @param _amount Contains the amount being donated (denominated in the base token's units).
+     * @param _feeOverride Admin override configured by an Admin
+     * @dev Reverts if the entity is inactive or if the token transfer fails.
+     * @dev Reverts if the transfer fee percentage is larger than 100% (equal to 1e4 when represented as a zoc).
+     * @dev Reverts with `Unauthorized` if the `msg.sender` is not a privileged role.
+     */
+    function transferToEntityWithAdminOverrides(Entity _to, uint256 _amount, uint32 _feeOverride)
+        external
+        virtual
+        requiresAuth
+    {
+        _transferWithFeeMultiplier(_to, _amount, _feeOverride);
     }
 
     /**
@@ -262,33 +301,38 @@ abstract contract Entity is EndaomentAuth {
             balance -= _amount;
             _to.receiveTransfer(_netAmount);
         }
-        emit EntityFundsTransferred(address(this), address(_to), _amount, _fee);
+        emit EntityValueTransferred(address(this), address(_to), _amount, _fee);
     }
 
     /**
-     * @notice Updates the receiving entity balance on a transfer, after verifying that the receiver's ERC20 balance has increased appropriately.
+     * @notice Updates the receiving entity balance on a transfer.
      * @param _transferAmount The amount being received on the transfer.
-     * @dev This function is public, but is restricted such that it can only be called by other entities.
+     * @dev This function is external, but is restricted such that it can only be called by other entities.
      */
-     function receiveTransfer(uint256 _transferAmount) external virtual {
-         if (!registry.isActiveEntity(Entity(msg.sender))) revert InvalidTransferAttempt();
-         unchecked {
-             // Cannot overflow with realistic balances.
-             balance += _transferAmount;
-         }
-     }
+    function receiveTransfer(uint256 _transferAmount) external virtual {
+        if (!registry.isActiveEntity(Entity(payable(msg.sender)))) revert EntityInactive();
+        unchecked {
+            // Cannot overflow with realistic balances.
+            balance += _transferAmount;
+        }
+    }
 
-     /**
+    /**
      * @notice Deposits an amount of Entity's `baseToken` into an Endaoment-approved Portfolio.
      * @param _portfolio An Endaoment-approved portfolio.
      * @param _amount Amount of `baseToken` to deposit into the portfolio.
      * @param _data Data required by a portfolio to deposit.
      * @return _shares Amount of portfolio share tokens Entity received as a result of this deposit.
      */
-    function portfolioDeposit(Portfolio _portfolio, uint256 _amount, bytes calldata _data) external virtual requiresManager returns (uint256) {
-        if(!registry.isActivePortfolio(_portfolio)) revert PortfolioInactive();
+    function portfolioDeposit(Portfolio _portfolio, uint256 _amount, bytes calldata _data)
+        external
+        virtual
+        requiresManager
+        returns (uint256)
+    {
+        if (!registry.isActivePortfolio(_portfolio)) revert PortfolioInactive();
         balance -= _amount;
-        baseToken.approve(address(_portfolio), _amount);
+        baseToken.safeApprove(address(_portfolio), _amount);
         uint256 _shares = _portfolio.deposit(_amount, _data);
         emit EntityDeposit(address(_portfolio), _amount, _shares);
         return _shares;
@@ -301,14 +345,19 @@ abstract contract Entity is EndaomentAuth {
      * @param _data Data required by a portfolio to redeem.
      * @return _received Amount of `baseToken` Entity received as a result of this redemption.
      */
-    function portfolioRedeem(Portfolio _portfolio, uint256 _shares, bytes calldata _data) external virtual requiresManager returns (uint256) {
-        if(!registry.isActivePortfolio(_portfolio)) revert PortfolioInactive();
+    function portfolioRedeem(Portfolio _portfolio, uint256 _shares, bytes calldata _data)
+        external
+        virtual
+        requiresManager
+        returns (uint256)
+    {
+        if (!registry.isActivePortfolio(_portfolio)) revert PortfolioInactive();
         uint256 _received = _portfolio.redeem(_shares, _data);
         // unchecked: a realistic balance can never overflow a uint256
         unchecked {
             balance += _received;
         }
-        emit EntityDeposit(address(_portfolio), _shares, _received);
+        emit EntityRedeem(address(_portfolio), _shares, _received);
         return _received;
     }
 
@@ -339,7 +388,7 @@ abstract contract Entity is EndaomentAuth {
             balance = _tokenBalance;
             emit EntityBalanceCorrected(address(this), _tokenBalance);
         }
-     }
+    }
 
     /**
      * @notice Takes stray tokens or ETH sent directly to this Entity, swaps them for base token, then adds them to the
@@ -354,7 +403,7 @@ abstract contract Entity is EndaomentAuth {
         address _tokenIn,
         uint256 _amountIn,
         bytes calldata _data
-    ) external virtual requiresManager {
+    ) external virtual nonReentrant requiresManager {
         if (!registry.isSwapperSupported(_swapWrapper)) revert InvalidAction();
 
         uint32 _feeMultiplier = registry.getDonationFeeWithOverrides(this);
@@ -367,13 +416,8 @@ abstract contract Entity is EndaomentAuth {
         // Send value only if token in is ETH
         uint256 _value = _tokenIn == ETH_PLACEHOLDER ? _amountIn : 0;
 
-        uint256 _amountOut = _swapWrapper.swap{value: _value}(
-            _tokenIn,
-            address(baseToken),
-            address(this),
-            _amountIn,
-            _data
-        );
+        uint256 _amountOut =
+            _swapWrapper.swap{value: _value}(_tokenIn, address(baseToken), address(this), _amountIn, _data);
 
         (uint256 _netAmount, uint256 _fee) = _calculateFee(_amountOut, _feeMultiplier);
         baseToken.safeTransfer(registry.treasury(), _fee);
@@ -382,6 +426,8 @@ abstract contract Entity is EndaomentAuth {
             // unchecked as no possibility of overflow with baseToken precision
             balance += _netAmount;
         }
+
+        if (balance > baseToken.balanceOf(address(this))) revert BalanceMismatch();
 
         emit EntityBalanceReconciled(address(this), _amountOut, _fee);
     }
@@ -393,11 +439,13 @@ abstract contract Entity is EndaomentAuth {
      * @param _data The calldata that will be sent with the call.
      * @return _return The data returned by the call.
      */
-    function callAsEntity(
-        address _target,
-        uint256 _value,
-        bytes memory _data
-    ) external virtual payable requiresAuth returns (bytes memory) {
+    function callAsEntity(address _target, uint256 _value, bytes memory _data)
+        external
+        payable
+        virtual
+        requiresAuth
+        returns (bytes memory)
+    {
         (bool _success, bytes memory _response) = payable(_target).call{value: _value}(_data);
         if (!_success) revert CallFailed(_response);
         return _response;
@@ -431,6 +479,22 @@ abstract contract Entity is EndaomentAuth {
     }
 
     /**
+     * @notice Pays out an amount of base tokens from the entity to an address. Transfers fee specified by a privileged role.
+     * @param _amount Amount donated in base token.
+     * @param _feeOverride Payout override configured by an Admin
+     * @dev Reverts with `Unauthorized` if the `msg.sender` is not a privileged role.
+     * @dev Reverts if the fee percentage is larger than 100% (equal to 1e4 when represented as a zoc).
+     * @dev Reverts if the token transfer fails.
+     */
+    function payoutWithAdminOverrides(address _to, uint256 _amount, uint32 _feeOverride)
+        external
+        virtual
+        requiresAuth
+    {
+        _payoutWithFeeMultiplier(_to, _amount, _feeOverride);
+    }
+
+    /**
      * @notice Pays out an amount of base tokens from the entity to an address. Transfers the fee calculated by fee multiplier to the treasury.
      * @param _to The address to receive the tokens.
      * @param _amount Contains the amount being paid out (denominated in the base token's units).
@@ -440,7 +504,7 @@ abstract contract Entity is EndaomentAuth {
      */
     function _payoutWithFeeMultiplier(address _to, uint256 _amount, uint32 _feeMultiplier) internal virtual {
         if (balance < _amount) revert InsufficientFunds();
-        
+
         (uint256 _netAmount, uint256 _fee) = _calculateFee(_amount, _feeMultiplier);
         baseToken.safeTransfer(registry.treasury(), _fee);
         baseToken.safeTransfer(address(_to), _netAmount);
@@ -449,14 +513,16 @@ abstract contract Entity is EndaomentAuth {
             // unchecked because we've already validated that amount is less than or equal to the balance
             balance -= _amount;
         }
-        emit EntityFundsPaidOut(address(this), _to, _amount, _fee);
+        emit EntityValuePaidOut(address(this), _to, _amount, _fee);
     }
 
     /// @dev Internal helper method to calculate the fee on a base token amount for a given fee multiplier.
-    function _calculateFee(
-        uint256 _amount,
-        uint256 _feeMultiplier
-    ) internal virtual pure returns (uint256 _netAmount, uint256 _fee) {
+    function _calculateFee(uint256 _amount, uint256 _feeMultiplier)
+        internal
+        pure
+        virtual
+        returns (uint256 _netAmount, uint256 _fee)
+    {
         if (_feeMultiplier > Math.ZOC) revert InvalidAction();
         unchecked {
             // unchecked as no possibility of overflow with baseToken precision
@@ -464,5 +530,9 @@ abstract contract Entity is EndaomentAuth {
             // unchecked as the _feeMultiplier check with revert above protects against overflow
             _netAmount = _amount - _fee;
         }
+    }
+
+    receive() external payable virtual {
+        emit EntityEthReceived(msg.sender, msg.value);
     }
 }

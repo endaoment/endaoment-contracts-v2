@@ -1,10 +1,13 @@
-  // SPDX-License-Identifier: BSD 3-Claused
+    // SPDX-License-Identifier: BSD 3-Clause
 pragma solidity 0.8.13;
 
-import { Registry } from "./Registry.sol";
-import { NDAO } from "./NDAO.sol";
-import { NVT, INDAO } from "./NVT.sol";
-import { RollingMerkleDistributor } from "./RollingMerkleDistributor.sol";
+import {Registry} from "./Registry.sol";
+import {NDAO} from "./NDAO.sol";
+import {NVT, INDAO} from "./NVT.sol";
+import {RollingMerkleDistributor} from "./RollingMerkleDistributor.sol";
+import {Portfolio} from "./Portfolio.sol";
+import {Entity} from "./Entity.sol";
+import {Org} from "./Org.sol";
 
 /**
  * @notice Roles and Capabilities Control - This sets up the the Role/Capability authorizations.
@@ -16,40 +19,50 @@ contract RolesAndCapabilitiesControl {
     address portfolioTarget = address(bytes20("portfolio"));
 
     // Registry operations
-    bytes4 public setEntityStatus = bytes4(keccak256("setEntityStatus(address,bool)"));
-    bytes4 public setDefaultDonationFee = bytes4(keccak256("setDefaultDonationFee(uint8,uint32)"));
-    bytes4 public setDonationFeeReceiverOverride = bytes4(keccak256("setDonationFeeReceiverOverride(address,uint32)"));
-    bytes4 public setDefaultPayoutFee = bytes4(keccak256("setDefaultPayoutFee(uint8,uint32)"));
-    bytes4 public setPayoutFeeOverride = bytes4(keccak256("setPayoutFeeOverride(address,uint32)"));
-    bytes4 public setDefaultTransferFee = bytes4(keccak256("setDefaultTransferFee(uint8,uint8,uint32)"));
-    bytes4 public setTransferFeeSenderOverride = bytes4(keccak256("setTransferFeeSenderOverride(address,uint8,uint32)"));
-    bytes4 public setTransferFeeReceiverOverride = bytes4(keccak256("setTransferFeeReceiverOverride(uint8,address,uint32)"));
-    bytes4 public setPortfolioStatus = bytes4(keccak256("setPortfolioStatus(address,bool)"));
-    bytes4 public setTreasury = bytes4(keccak256("setTreasury(address)"));
+    bytes4 public setEntityStatus = Registry.setEntityStatus.selector;
+    bytes4 public setDefaultDonationFee = Registry.setDefaultDonationFee.selector;
+    bytes4 public setDonationFeeReceiverOverride = Registry.setDonationFeeReceiverOverride.selector;
+    bytes4 public setDefaultPayoutFee = Registry.setDefaultPayoutFee.selector;
+    bytes4 public setPayoutFeeOverride = Registry.setPayoutFeeOverride.selector;
+    bytes4 public setDefaultTransferFee = Registry.setDefaultTransferFee.selector;
+    bytes4 public setTransferFeeSenderOverride = Registry.setTransferFeeSenderOverride.selector;
+    bytes4 public setTransferFeeReceiverOverride = Registry.setTransferFeeReceiverOverride.selector;
+    bytes4 public setPortfolioStatus = Registry.setPortfolioStatus.selector;
+    bytes4 public setTreasury = Registry.setTreasury.selector;
+    bytes4 public setSwapWrapperStatus = Registry.setSwapWrapperStatus.selector;
+    bytes4 public setFactoryApproval = Registry.setFactoryApproval.selector;
 
     // Entity operations
-    bytes4 public entityTransfer = bytes4(keccak256("transfer(address,uint256)"));
-    bytes4 public entityTransferWithOverrides = bytes4(keccak256("transferWithOverrides(address,uint256)"));
-    bytes4 public setOrgId = bytes4(keccak256("setOrgId(bytes32)"));
-    bytes4 public setManager = bytes4(keccak256("setManager(address)"));
-    bytes4 public payout = bytes4(keccak256("payout(address,uint256)"));
-    bytes4 public payoutWithOverrides = bytes4(keccak256("payoutWithOverrides(address,uint256)"));
+    bytes4 public donateWithAdminOverrides = Entity.donateWithAdminOverrides.selector;
+    bytes4 public entityTransferToEntity = Entity.transferToEntity.selector;
+    bytes4 public entityTransferToEntityWithOverrides = Entity.transferToEntityWithOverrides.selector;
+    bytes4 public entityTransferToEntityWithAdminOverrides = Entity.transferToEntityWithAdminOverrides.selector;
+    bytes4 public swapAndReconcileBalance = Entity.swapAndReconcileBalance.selector;
+    bytes4 public setManager = Entity.setManager.selector;
+    bytes4 public payout = Entity.payout.selector;
+    bytes4 public payoutWithOverrides = Entity.payoutWithOverrides.selector;
+    bytes4 public payoutWithAdminOverrides = Entity.payoutWithAdminOverrides.selector;
+    bytes4 public portfolioDeposit = Entity.portfolioDeposit.selector;
+    bytes4 public portfolioRedeem = Entity.portfolioRedeem.selector;
+
+    // Org operations
+    bytes4 public setOrgId = Org.setOrgId.selector;
 
     // Portfolio operations
-    bytes4 public setRedemptionFee = bytes4(keccak256("setRedemptionFee(uint256)"));
-    bytes4 public setCap = bytes4(keccak256("setCap(uint256)"));
-    bytes4 public portfolioDeposit = bytes4(keccak256("portfolioDeposit(address,uint256,bytes)"));
-    bytes4 public portfolioRedeem = bytes4(keccak256("portfolioRedeem(address,uint256,bytes)"));
+    bytes4 public setDepositFee = Portfolio.setDepositFee.selector;
+    bytes4 public setRedemptionFee = Portfolio.setRedemptionFee.selector;
+    bytes4 public setCap = Portfolio.setCap.selector;
+    bytes4 public takeFees = Portfolio.takeFees.selector;
 
     // NDAO operations
-    bytes4 public ndaoMint = bytes4(keccak256("mint(address,uint256)"));
+    bytes4 public ndaoMint = NDAO.mint.selector;
 
     // NVT operations
-    bytes4 public nvtVestLock = bytes4(keccak256("vestLock(address,uint256,uint256)"));
-    bytes4 public nvtClawback = bytes4(keccak256("clawback(address)"));
+    bytes4 public nvtVestLock = NVT.vestLock.selector;
+    bytes4 public nvtClawback = NVT.clawback.selector;
 
     // Rolling Merkle Distributor operations
-    bytes4 public rollover = bytes4(keccak256("rollover(bytes32,uint256)"));
+    bytes4 public rollover = RollingMerkleDistributor.rollover.selector;
 
     /**
      * @notice Setup the proper roles and capabilities for the capitalCommittee, programCommittee, investmentCommittee, and tokenTrust.
@@ -66,19 +79,51 @@ contract RolesAndCapabilitiesControl {
         RollingMerkleDistributor _distributor,
         RollingMerkleDistributor _baseDistributor
     ) public {
+        setCoreRolesAndCapabilities(_registry, _capitalCommittee, _programCommittee, _investmentCommittee, _tokenTrust);
+        setTokenRolesAndCapabilities(
+            _registry,
+            _capitalCommittee,
+            _programCommittee,
+            _investmentCommittee,
+            _tokenTrust,
+            _ndao,
+            _nvt,
+            _distributor,
+            _baseDistributor
+        );
+    }
+
+    function setCoreRolesAndCapabilities(
+        Registry _registry,
+        address _capitalCommittee,
+        address _programCommittee,
+        address _investmentCommittee,
+        address /* _tokenTrust */
+    ) public {
         // role 1: P_01	Payout capability from entities
         _registry.setRoleCapability(1, orgTarget, payout, true);
         _registry.setRoleCapability(1, fundTarget, payout, true);
         _registry.setRoleCapability(1, orgTarget, payoutWithOverrides, true);
         _registry.setRoleCapability(1, fundTarget, payoutWithOverrides, true);
+        _registry.setRoleCapability(1, orgTarget, payoutWithAdminOverrides, true);
+        _registry.setRoleCapability(1, fundTarget, payoutWithAdminOverrides, true);
         _registry.setUserRole(_capitalCommittee, 1, true);
 
         // role 2: P_02	Transfer balances between entities
-        _registry.setRoleCapability(2, orgTarget, entityTransfer, true);
-        _registry.setRoleCapability(2, fundTarget, entityTransfer, true);
-        _registry.setRoleCapability(2, orgTarget, entityTransferWithOverrides, true);
-        _registry.setRoleCapability(2, fundTarget, entityTransferWithOverrides, true);
+        _registry.setRoleCapability(2, orgTarget, entityTransferToEntity, true);
+        _registry.setRoleCapability(2, fundTarget, entityTransferToEntity, true);
+        _registry.setRoleCapability(2, orgTarget, entityTransferToEntityWithOverrides, true);
+        _registry.setRoleCapability(2, fundTarget, entityTransferToEntityWithOverrides, true);
+        _registry.setRoleCapability(2, orgTarget, entityTransferToEntityWithAdminOverrides, true);
+        _registry.setRoleCapability(2, fundTarget, entityTransferToEntityWithAdminOverrides, true);
         _registry.setUserRole(_capitalCommittee, 2, true);
+
+        // role 3: P_03 Liquidate assets in an entity
+        _registry.setRoleCapability(3, orgTarget, swapAndReconcileBalance, true);
+        _registry.setRoleCapability(3, fundTarget, swapAndReconcileBalance, true);
+        _registry.setUserRole(_capitalCommittee, 3, true);
+
+        // role 4: P_04 Send USDC from Org Treasury (No treasury contract -- could be multisig)
 
         // role 5: P_05	Enable/disable entities
         _registry.setRoleCapability(5, address(_registry), setEntityStatus, true);
@@ -99,8 +144,13 @@ contract RolesAndCapabilitiesControl {
         _registry.setRoleCapability(8, address(_registry), setDefaultPayoutFee, true);
         _registry.setUserRole(_programCommittee, 8, true);
 
-        // role 10: P_10 Change portfolio Management Fee
-        _registry.setRoleCapability(10, portfolioTarget, setRedemptionFee, true);
+        // role 9: P_09 Change portfolio entry/exit fees
+        _registry.setRoleCapability(9, portfolioTarget, setDepositFee, true);
+        _registry.setRoleCapability(9, portfolioTarget, setRedemptionFee, true);
+        _registry.setUserRole(_programCommittee, 9, true);
+
+        // role 10: P_10 Take fees
+        _registry.setRoleCapability(10, portfolioTarget, takeFees, true);
         _registry.setUserRole(_programCommittee, 10, true);
 
         // role 11: P_11 Change entity's outbound/inbound override fees
@@ -124,7 +174,44 @@ contract RolesAndCapabilitiesControl {
         // role 14: P_14 Change portfolio cap
         _registry.setRoleCapability(14, portfolioTarget, setCap, true);
         _registry.setUserRole(_investmentCommittee, 14, true);
-        
+
+        // role 15: P_15 Pause entrance to a portfolio (defunct -- to pause, set portfolio cap to 0)
+
+        // role 16: P_16 Change base token (defunct -- no changing of baseToken)
+
+        // roles 17 & 18 are set below in `setRolesAndCapabilitiesToken`
+
+        // role 19: P_19 Donate with admin fee override
+        _registry.setRoleCapability(19, orgTarget, donateWithAdminOverrides, true);
+        _registry.setRoleCapability(19, fundTarget, donateWithAdminOverrides, true);
+        _registry.setUserRole(_capitalCommittee, 19, true);
+
+        // role 20: P_20 Enable/disable swap wrapper
+        _registry.setRoleCapability(20, address(_registry), setSwapWrapperStatus, true);
+        _registry.setUserRole(_capitalCommittee, 20, true);
+
+        // role 21: P_21 Not Present in FR spreadsheet
+
+        // roles 22 & 23 are set below in `setRolesAndCapabilitiesToken`
+
+        // role 24: P_24 Set admin treasury address (board only)
+        _registry.setRoleCapability(24, address(_registry), setTreasury, true);
+
+        // role 25: P_25 Enable/disable entity factories
+        _registry.setRoleCapability(25, address(_registry), setFactoryApproval, true);
+    }
+
+    function setTokenRolesAndCapabilities(
+        Registry _registry,
+        address _capitalCommittee,
+        address, /* _programCommittee */
+        address, /* _investmentCommittee */
+        address _tokenTrust,
+        NDAO _ndao,
+        NVT _nvt,
+        RollingMerkleDistributor _distributor,
+        RollingMerkleDistributor _baseDistributor
+    ) public {
         // role 17: P_17 NDAO Rolling Merkle Distributor Rollover
         _registry.setRoleCapability(17, address(_distributor), rollover, true);
         _registry.setUserRole(_tokenTrust, 17, true);

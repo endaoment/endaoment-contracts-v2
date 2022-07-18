@@ -1,5 +1,6 @@
-// SPDX-License-Identifier: BSD 3-Claused
+// SPDX-License-Identifier: BSD 3-Clause
 pragma solidity 0.8.13;
+
 import "./utils/DeployTest.sol";
 import "../Registry.sol";
 
@@ -7,7 +8,6 @@ import "../Org.sol";
 import "../Fund.sol";
 
 contract OrgTest is DeployTest {
-
     // Shadows EndaomentAuth.
     error AlreadyInitialized();
 
@@ -21,7 +21,6 @@ contract OrgTest is DeployTest {
 }
 
 contract OrgInitializer is OrgTest {
-
     function testFuzz_OrgInitializer(bytes32 _orgId) public {
         Org _org = new Org();
         _org.initialize(globalTestRegistry, _orgId);
@@ -38,10 +37,6 @@ contract OrgInitializer is OrgTest {
         vm.expectRevert(AlreadyInitialized.selector);
         _org.initialize(globalTestRegistry, bytes32("newId"));
 
-        // Attempt to call Entity initializer
-        vm.expectRevert(AlreadyInitialized.selector);
-        _org.initialize(globalTestRegistry, address(0xbeefcafe));
-
         // Attempt to call EndaomentAuth initializer
         vm.expectRevert(AlreadyInitialized.selector);
         _org.initialize(globalTestRegistry, bytes32("beef_cafe"));
@@ -53,10 +48,9 @@ contract OrgInitializer is OrgTest {
 }
 
 contract OrgSetOrgId is OrgTest {
-
     address[] public actors = [board, capitalCommittee];
 
-    function testFuzz_SetOrgId(address _manager, bytes32 _newOrgId, uint _actor) public {
+    function testFuzz_SetOrgId(address _manager, bytes32 _newOrgId, uint256 _actor) public {
         address actor = actors[_actor % actors.length];
         vm.prank(board);
         org.setManager(_manager);
@@ -74,7 +68,6 @@ contract OrgSetOrgId is OrgTest {
 }
 
 contract FundInitializer is DeployTest {
-
     // Shadows EndaomentAuth.
     error AlreadyInitialized();
 
@@ -92,10 +85,6 @@ contract FundInitializer is DeployTest {
         // Attempt to call Entity initializer
         vm.expectRevert(AlreadyInitialized.selector);
         _fund.initialize(globalTestRegistry, address(0xbeefcafe));
-
-        // Attempt to call EndaomentAuth initializer
-        vm.expectRevert(AlreadyInitialized.selector);
-        _fund.initialize(globalTestRegistry, "beef_cafe");
 
         assertEq(_fund.entityType(), 2);
         assertEq(_fund.manager(), _manager);

@@ -1,12 +1,12 @@
-// SPDX-License-Identifier: BSD 3-Claused
+// SPDX-License-Identifier: BSD 3-Clause
 pragma solidity 0.8.13;
 
-import { DeployTest } from "./utils/DeployTest.sol";
-import { NVT, NVTTypes, INDAO } from "../NVT.sol";
-import { NDAO } from "../NDAO.sol";
+import {DeployTest} from "./utils/DeployTest.sol";
+import {NVT, NVTTypes, INDAO} from "../NVT.sol";
+import {NDAO} from "../NDAO.sol";
 
 contract NVTTest is NVTTypes, DeployTest {
-    // In the Solmate ERC20 implementation, attempting to transfer tokens you don't have reverts w/ an overflow panic
+    // In the Solmate ERC20 implementation, attempting to transfer tokens you don't have reverts w/ an overflow shutdown
     bytes ErrorNoNdaoTokensError = abi.encodeWithSignature("Panic(uint256)", 0x11);
 
     // Shadows EndaomentAuth
@@ -27,11 +27,7 @@ contract NVTTest is NVTTypes, DeployTest {
     }
 
     function mintNdaoAndApproveNvt(address _holder, uint256 _amount) public {
-        vm.assume(
-            _holder != address(0) &&
-            _holder != address(ndao) &&
-            _holder != address(nvt)
-        );
+        vm.assume(_holder != address(0) && _holder != address(ndao) && _holder != address(nvt));
 
         vm.prank(board);
         ndao.mint(_holder, _amount);
@@ -47,12 +43,7 @@ contract NVTTest is NVTTypes, DeployTest {
     }
 
     function mintNdaoAndVest(address _vestee, uint256 _amount, uint256 _period) public {
-        vm.assume(
-            _vestee != board &&
-            _vestee != capitalCommittee &&
-            _vestee != address(0) &&
-            _vestee != address(nvt)
-        );
+        vm.assume(_vestee != board && _vestee != capitalCommittee && _vestee != address(0) && _vestee != address(nvt));
         mintNdaoAndApproveNvt(board, _amount);
 
         vm.prank(board);
@@ -87,7 +78,6 @@ contract NVTTest is NVTTypes, DeployTest {
 
 // Deployment sanity checks.
 contract NVTDeployment is NVTTest {
-
     function test_Deployment() public {
         assertEq(nvt.name(), "NDAO Voting Token");
         assertEq(nvt.symbol(), "NVT");
@@ -98,16 +88,8 @@ contract NVTDeployment is NVTTest {
 
 // Testing that NVT tokens can be delegated
 contract Delegatable is NVTTest {
-    function testFuzz_DelegateToAnotherAccount(
-        address _holder,
-        address _delegatee,
-        uint256 _holdAmount
-    ) public {
-        vm.assume(
-            _holder != address(0) &&
-            _delegatee != address(0) &&
-            _holder != _delegatee
-        );
+    function testFuzz_DelegateToAnotherAccount(address _holder, address _delegatee, uint256 _holdAmount) public {
+        vm.assume(_holder != address(0) && _delegatee != address(0) && _holder != _delegatee);
         _holdAmount = bound(_holdAmount, 0, MAX_DEPOSIT_AMOUNT);
 
         mintNdaoAndVoteLock(_holder, _holdAmount);
@@ -118,10 +100,7 @@ contract Delegatable is NVTTest {
         assertEq(nvt.getVotes(_holder), 0);
     }
 
-    function testFuzz_DelegateToSelf(
-        address _holder,
-        uint256 _holdAmount
-    ) public {
+    function testFuzz_DelegateToSelf(address _holder, uint256 _holdAmount) public {
         vm.assume(_holder != address(0));
         _holdAmount = bound(_holdAmount, 0, MAX_DEPOSIT_AMOUNT);
 
@@ -139,12 +118,8 @@ contract Delegatable is NVTTest {
         uint256 _holdAmount
     ) public {
         vm.assume(
-            _holder != address(0) &&
-            _delegatee != address(0) &&
-            _secondDelegatee != address(0) &&
-            _delegatee != _secondDelegatee &&
-            _holder != _delegatee &&
-            _holder != _secondDelegatee
+            _holder != address(0) && _delegatee != address(0) && _secondDelegatee != address(0)
+                && _delegatee != _secondDelegatee && _holder != _delegatee && _holder != _secondDelegatee
         );
         _holdAmount = bound(_holdAmount, 0, MAX_DEPOSIT_AMOUNT);
 
@@ -160,11 +135,7 @@ contract Delegatable is NVTTest {
     }
 
     function testFuzz_DelegateRemovedAfterVotesUnlocked(address _holder, uint256 _amount, address _delegatee) public {
-        vm.assume(
-            _holder != address(0) &&
-            _delegatee != address(0) &&
-            _holder != _delegatee
-        );
+        vm.assume(_holder != address(0) && _delegatee != address(0) && _holder != _delegatee);
         _amount = bound(_amount, 0, MAX_DEPOSIT_AMOUNT);
         mintNdaoAndVoteLock(_holder, _amount);
 
@@ -179,10 +150,7 @@ contract Delegatable is NVTTest {
 
         // Unlock the full balance.
         UnlockRequest[] memory requests = new UnlockRequest[](1);
-        requests[0] = UnlockRequest({
-            index: 0,
-            amount: _amount
-        });
+        requests[0] = UnlockRequest({index: 0, amount: _amount});
         vm.prank(_holder);
         nvt.unlock(requests);
 
@@ -190,16 +158,10 @@ contract Delegatable is NVTTest {
         assertEq(nvt.getVotes(_delegatee), 0);
     }
 
-    function testFuzz_DelegateIncreasedWhenMoreVotesLocked(
-        address _holder,
-        address _delegatee,
-        uint256 _holdAmount
-    ) public {
-        vm.assume(
-            _holder != address(0) &&
-            _delegatee != address(0) &&
-            _holder != _delegatee
-        );
+    function testFuzz_DelegateIncreasedWhenMoreVotesLocked(address _holder, address _delegatee, uint256 _holdAmount)
+        public
+    {
+        vm.assume(_holder != address(0) && _delegatee != address(0) && _holder != _delegatee);
         _holdAmount = bound(_holdAmount, 0, MAX_DEPOSIT_AMOUNT);
 
         mintNdaoAndVoteLock(_holder, _holdAmount);
@@ -212,16 +174,8 @@ contract Delegatable is NVTTest {
         assertEq(nvt.getVotes(_delegatee), _holdAmount * 2);
     }
 
-    function testFuzz_DelegateReflectPastState(
-        address _holder,
-        address _delegatee,
-        uint256 _holdAmount
-    ) public {
-        vm.assume(
-            _holder != address(0) &&
-            _delegatee != address(0) &&
-            _holder != _delegatee
-        );
+    function testFuzz_DelegateReflectPastState(address _holder, address _delegatee, uint256 _holdAmount) public {
+        vm.assume(_holder != address(0) && _delegatee != address(0) && _holder != _delegatee);
         _holdAmount = bound(_holdAmount, 0, MAX_DEPOSIT_AMOUNT);
 
         mintNdaoAndVoteLock(_holder, _holdAmount);
@@ -231,7 +185,7 @@ contract Delegatable is NVTTest {
         assertEq(nvt.getVotes(_delegatee), _holdAmount);
         assertEq(nvt.getVotes(_holder), 0);
 
-        uint blockOfDelegation = block.number;
+        uint256 blockOfDelegation = block.number;
 
         vm.roll(100);
 
@@ -249,17 +203,10 @@ contract Delegatable is NVTTest {
 
 // Testing that NVT tokens cannot be transferred.
 contract NonTransferable is NVTTest {
-
-    function testFuzz_CannotTransfer(
-        address _holder,
-        address _receiver,
-        uint256 _holdAmount,
-        uint256 _transferAmount
-    ) public {
-        vm.assume(
-            _holder != address(0) &&
-            _receiver != address(0)
-        );
+    function testFuzz_CannotTransfer(address _holder, address _receiver, uint256 _holdAmount, uint256 _transferAmount)
+        public
+    {
+        vm.assume(_holder != address(0) && _receiver != address(0));
         _holdAmount = bound(_holdAmount, 0, MAX_DEPOSIT_AMOUNT);
         _transferAmount = bound(_transferAmount, 0, _holdAmount);
 
@@ -271,10 +218,7 @@ contract NonTransferable is NVTTest {
     }
 
     function testFuzz_CannotApprove(address _holder, address _spender, uint256 _approveAmount) public {
-        vm.assume(
-            _holder != address(0) &&
-            _spender != address(0)
-        );
+        vm.assume(_holder != address(0) && _spender != address(0));
 
         vm.expectRevert(TransferDisallowed.selector);
         vm.prank(_holder);
@@ -282,10 +226,7 @@ contract NonTransferable is NVTTest {
     }
 
     function testFuzz_CannotIncreaseAllowance(address _holder, address _spender, uint256 _increaseAmount) public {
-        vm.assume(
-            _holder != address(0) &&
-            _spender != address(0)
-        );
+        vm.assume(_holder != address(0) && _spender != address(0));
 
         vm.expectRevert(TransferDisallowed.selector);
         vm.prank(_holder);
@@ -293,10 +234,7 @@ contract NonTransferable is NVTTest {
     }
 
     function testFuzz_CannotDecreaseAllowance(address _holder, address _spender, uint256 _decreaseAmount) public {
-        vm.assume(
-            _holder != address(0) &&
-            _spender != address(0)
-        );
+        vm.assume(_holder != address(0) && _spender != address(0));
 
         vm.expectRevert(TransferDisallowed.selector);
         vm.prank(_holder);
@@ -310,11 +248,7 @@ contract NonTransferable is NVTTest {
         uint256 _holdAmount,
         uint256 _transferAmount
     ) public {
-        vm.assume(
-            _holder != address(0) &&
-            _receiver != address(0) &&
-            _spender != address(0)
-        );
+        vm.assume(_holder != address(0) && _receiver != address(0) && _spender != address(0));
         _holdAmount = bound(_holdAmount, 0, MAX_DEPOSIT_AMOUNT);
         _transferAmount = bound(_transferAmount, 0, _holdAmount);
 
@@ -328,7 +262,6 @@ contract NonTransferable is NVTTest {
 
 // Testing the ability to lock NDAO for NVT.
 contract VoteLock is NVTTest {
-
     function testFuzz_NdaoHolderCanVoteLockNvt(address _holder, uint256 _amount) public {
         _amount = bound(_amount, 0, MAX_DEPOSIT_AMOUNT);
         mintNdaoAndApproveNvt(_holder, _amount);
@@ -349,7 +282,9 @@ contract VoteLock is NVTTest {
         nvt.voteLock(_amount);
     }
 
-    function testFuzz_NdaoHolderCanVoteLockNvtMultipleTimes(address _holder, uint256 _amount1, uint256 _amount2) public {
+    function testFuzz_NdaoHolderCanVoteLockNvtMultipleTimes(address _holder, uint256 _amount1, uint256 _amount2)
+        public
+    {
         _amount1 = bound(_amount1, 0, MAX_DEPOSIT_AMOUNT);
         _amount2 = bound(_amount2, 0, MAX_DEPOSIT_AMOUNT);
 
@@ -399,7 +334,6 @@ contract VoteLock is NVTTest {
 
 // Testing deposits are recorded when tokens are locked.
 contract Deposits is NVTTest {
-
     function testFuzz_RecordsDepositOnVoteLock(address _holder, uint256 _amount) public {
         _amount = bound(_amount, 0, MAX_DEPOSIT_AMOUNT);
         assertEq(nvt.getNumDeposits(_holder), 0);
@@ -432,7 +366,9 @@ contract Deposits is NVTTest {
         assertEq(deposit2.balance, _amount2);
     }
 
-    function testFuzz_MultipleDepositsOverTimeSpan(address _holder, uint256 _amount1, uint256 _amount2, uint256 _time) public {
+    function testFuzz_MultipleDepositsOverTimeSpan(address _holder, uint256 _amount1, uint256 _amount2, uint256 _time)
+        public
+    {
         _amount1 = bound(_amount1, 0, MAX_DEPOSIT_AMOUNT);
         _amount2 = bound(_amount2, 0, MAX_DEPOSIT_AMOUNT);
         _time = bound(_time, 0, 1000 * (365 days));
@@ -491,10 +427,7 @@ contract Deposits is NVTTest {
 
         // Unlock one third of the balance
         UnlockRequest[] memory requests = new UnlockRequest[](1);
-        requests[0] = UnlockRequest({
-            index: 0,
-            amount: _amount / 3
-        });
+        requests[0] = UnlockRequest({index: 0, amount: _amount / 3});
         vm.prank(_holder);
         nvt.unlock(requests);
 
@@ -515,10 +448,7 @@ contract Deposits is NVTTest {
 
         // Unlock the full balance.
         UnlockRequest[] memory requests = new UnlockRequest[](1);
-        requests[0] = UnlockRequest({
-            index: 0,
-            amount: _amount
-        });
+        requests[0] = UnlockRequest({index: 0, amount: _amount});
         vm.prank(_holder);
         nvt.unlock(requests);
 
@@ -531,7 +461,6 @@ contract Deposits is NVTTest {
 
 // Testing the view helper which determines how many tokens are eligible to unlock.
 contract WithdrawalAvailable is NVTTest {
-
     function testFuzz_ZeroAvailableImmediately(address _holder, uint256 _amount) public {
         _amount = bound(_amount, 0, MAX_DEPOSIT_AMOUNT);
         mintNdaoAndVoteLock(_holder, _amount);
@@ -656,10 +585,7 @@ contract WithdrawalAvailable is NVTTest {
 
         // Unlock everything that's available
         UnlockRequest[] memory requests = new UnlockRequest[](1);
-        requests[0] = UnlockRequest({
-            index: 0,
-            amount: _amount / 4
-        });
+        requests[0] = UnlockRequest({index: 0, amount: _amount / 4});
         vm.prank(_holder);
         nvt.unlock(requests);
 
@@ -703,10 +629,7 @@ contract Unlock is NVTTest {
 
         skip(365 days);
 
-        testRequests.push(UnlockRequest({
-            index: 0,
-            amount: _amount
-        }));
+        testRequests.push(UnlockRequest({index: 0, amount: _amount}));
 
         vm.prank(_holder);
         nvt.unlock(testRequests);
@@ -722,10 +645,7 @@ contract Unlock is NVTTest {
 
         skip(365 days);
 
-        testRequests.push(UnlockRequest({
-            index: 0,
-            amount: _unlockAmount
-        }));
+        testRequests.push(UnlockRequest({index: 0, amount: _unlockAmount}));
 
         vm.prank(_holder);
         expectEvent_Unlocked(_holder, 0, _unlockAmount);
@@ -738,10 +658,7 @@ contract Unlock is NVTTest {
 
         skip((365 days) / 4);
 
-        testRequests.push(UnlockRequest({
-            index: 0,
-            amount: (_amount / 4)
-        }));
+        testRequests.push(UnlockRequest({index: 0, amount: (_amount / 4)}));
 
         vm.prank(_holder);
         nvt.unlock(testRequests);
@@ -756,10 +673,7 @@ contract Unlock is NVTTest {
 
         skip((365 days) / 4);
 
-        testRequests.push(UnlockRequest({
-            index: 0,
-            amount: (_amount / 8)
-        }));
+        testRequests.push(UnlockRequest({index: 0, amount: (_amount / 8)}));
 
         vm.prank(_holder);
         nvt.unlock(testRequests);
@@ -775,18 +689,10 @@ contract Unlock is NVTTest {
         skip((365 days) / 4);
 
         // Request less than what's available
-        testRequests.push(
-            UnlockRequest({
-                index: 0,
-                amount: (_amount / 6)
-            })
-        );
+        testRequests.push(UnlockRequest({index: 0, amount: (_amount / 6)}));
 
         // Request what's left after the prior request
-        testRequests.push(UnlockRequest({
-            index: 0,
-            amount: ( (_amount / 4) - (_amount / 6) )
-        }));
+        testRequests.push(UnlockRequest({index: 0, amount: ((_amount / 4) - (_amount / 6))}));
 
         vm.prank(_holder);
         nvt.unlock(testRequests);
@@ -801,10 +707,7 @@ contract Unlock is NVTTest {
 
         skip((365 days) / 4);
 
-        testRequests.push(UnlockRequest({
-            index: 0,
-            amount: (_amount / 4)
-        }));
+        testRequests.push(UnlockRequest({index: 0, amount: (_amount / 4)}));
 
         vm.prank(_holder);
         nvt.unlock(testRequests);
@@ -812,10 +715,7 @@ contract Unlock is NVTTest {
         delete testRequests;
         skip((365 days) / 6);
 
-        testRequests.push(UnlockRequest({
-            index: 0,
-            amount: (_amount / 6)
-        }));
+        testRequests.push(UnlockRequest({index: 0, amount: (_amount / 6)}));
 
         vm.prank(_holder);
         nvt.unlock(testRequests);
@@ -836,15 +736,9 @@ contract Unlock is NVTTest {
         uint256 _amount1Unlocked = (10 * _amount1) / 24; // (1/4) + (1/6) = (10/24)
         uint256 _amount2Unlocked = _amount2 / 6;
 
-        testRequests.push(UnlockRequest({
-            index: 0,
-            amount: _amount1Unlocked
-        }));
+        testRequests.push(UnlockRequest({index: 0, amount: _amount1Unlocked}));
 
-        testRequests.push(UnlockRequest({
-            index: 1,
-            amount: _amount2Unlocked
-        }));
+        testRequests.push(UnlockRequest({index: 1, amount: _amount2Unlocked}));
 
         vm.prank(_holder);
         nvt.unlock(testRequests);
@@ -870,15 +764,9 @@ contract Unlock is NVTTest {
 
         skip(365 days);
 
-        testRequests.push(UnlockRequest({
-            index: 0,
-            amount: _unlockAmount1
-        }));
+        testRequests.push(UnlockRequest({index: 0, amount: _unlockAmount1}));
 
-        testRequests.push(UnlockRequest({
-            index: 1,
-            amount: _unlockAmount2
-        }));
+        testRequests.push(UnlockRequest({index: 1, amount: _unlockAmount2}));
 
         vm.prank(_holder);
         expectEvent_Unlocked(_holder, 0, _unlockAmount1);
@@ -897,10 +785,7 @@ contract Unlock is NVTTest {
         uint256 _amount1FirstUnlock = _amount1 / 8;
 
         // unlock some of the first deposit
-        testRequests.push(UnlockRequest({
-            index: 0,
-            amount: _amount1FirstUnlock
-        }));
+        testRequests.push(UnlockRequest({index: 0, amount: _amount1FirstUnlock}));
 
         vm.prank(_holder);
         nvt.unlock(testRequests);
@@ -918,22 +803,18 @@ contract Unlock is NVTTest {
         uint256 _amount2Unlock = _amount2 / 8;
 
         // unlock all available from deposit 1
-        testRequests.push(UnlockRequest({
-            index: 0,
-            amount: _amount1SecondUnlock
-        }));
+        testRequests.push(UnlockRequest({index: 0, amount: _amount1SecondUnlock}));
 
         // unlock some of what's available from deposit 2
-        testRequests.push(UnlockRequest({
-            index: 1,
-            amount: _amount2Unlock
-        }));
+        testRequests.push(UnlockRequest({index: 1, amount: _amount2Unlock}));
 
         vm.prank(_holder);
         nvt.unlock(testRequests);
 
         assertEq(ndao.balanceOf(_holder), _amount1FirstUnlock + _amount1SecondUnlock + _amount2Unlock);
-        assertEq(nvt.balanceOf(_holder), _amount1 + _amount2 - _amount1FirstUnlock - _amount1SecondUnlock - _amount2Unlock);
+        assertEq(
+            nvt.balanceOf(_holder), _amount1 + _amount2 - _amount1FirstUnlock - _amount1SecondUnlock - _amount2Unlock
+        );
     }
 
     function testFuzz_CannotUnlockMoreThanAvailable(address _holder, uint256 _amount) public {
@@ -942,12 +823,7 @@ contract Unlock is NVTTest {
 
         skip((365 days) / 4);
 
-        testRequests.push(
-            UnlockRequest({
-                index: 0,
-                amount: ((_amount / 4) + 1)
-            })
-        );
+        testRequests.push(UnlockRequest({index: 0, amount: ((_amount / 4) + 1)}));
 
         vm.prank(_holder);
         vm.expectRevert(InvalidUnlockRequest.selector);
@@ -961,27 +837,21 @@ contract Unlock is NVTTest {
         skip((365 days) / 4);
 
         // Request less than the quarter available
-        testRequests.push(
-            UnlockRequest({
-                index: 0,
-                amount: (_amount / 6)
-            })
-        );
+        testRequests.push(UnlockRequest({index: 0, amount: (_amount / 6)}));
 
         // Request one *more* than what's left after the prior request
-        testRequests.push(
-            UnlockRequest({
-                index: 0,
-                amount: ( (_amount / 4) - (_amount / 6) + 1 )
-            })
-        );
+        testRequests.push(UnlockRequest({index: 0, amount: ((_amount / 4) - (_amount / 6) + 1)}));
 
         vm.prank(_holder);
         vm.expectRevert(InvalidUnlockRequest.selector);
         nvt.unlock(testRequests);
     }
 
-    function testFuzz_CannotUnlockMoreThanTwoDepositsOverTwoTimeSpans(address _holder, uint256 _amount1, uint256 _amount2) public {
+    function testFuzz_CannotUnlockMoreThanTwoDepositsOverTwoTimeSpans(
+        address _holder,
+        uint256 _amount1,
+        uint256 _amount2
+    ) public {
         _amount1 = bound(_amount1, 0, MAX_DEPOSIT_AMOUNT);
         _amount2 = bound(_amount2, 0, MAX_DEPOSIT_AMOUNT);
 
@@ -992,10 +862,7 @@ contract Unlock is NVTTest {
         uint256 _amount1FirstUnlock = _amount1 / 8;
 
         // unlock some of the first deposit
-        testRequests.push(UnlockRequest({
-            index: 0,
-            amount: _amount1FirstUnlock
-        }));
+        testRequests.push(UnlockRequest({index: 0, amount: _amount1FirstUnlock}));
 
         vm.prank(_holder);
         nvt.unlock(testRequests);
@@ -1013,16 +880,10 @@ contract Unlock is NVTTest {
         uint256 _amount2Unlock = _amount2 / 8;
 
         // unlock *more* than all available from deposit 1
-        testRequests.push(UnlockRequest({
-            index: 0,
-            amount: _amount1SecondUnlock
-        }));
+        testRequests.push(UnlockRequest({index: 0, amount: _amount1SecondUnlock}));
 
         // unlock some of what's available from deposit 2
-        testRequests.push(UnlockRequest({
-            index: 1,
-            amount: _amount2Unlock
-        }));
+        testRequests.push(UnlockRequest({index: 1, amount: _amount2Unlock}));
 
         vm.prank(_holder);
         vm.expectRevert(InvalidUnlockRequest.selector);
@@ -1032,7 +893,6 @@ contract Unlock is NVTTest {
 
 // Testing the view, off-chain only integration helpers that return active deposits & total available for withdrawal.
 contract OffChainHelpers is NVTTest {
-
     function testFuzz_NoDeposits(address _holder) public {
         uint256[] memory activeIndices = nvt.getActiveDepositIndices(_holder, 0);
         uint256 _amountAvailable = nvt.getTotalAvailableForWithdrawal(_holder, 0, block.timestamp);
@@ -1082,7 +942,9 @@ contract OffChainHelpers is NVTTest {
         assertEq(_amountAvailable, 0);
     }
 
-    function testFuzz_AfterTwoSimultaneousDepositsTimeElapsed(address _holder, uint256 _amount1, uint256 _amount2) public {
+    function testFuzz_AfterTwoSimultaneousDepositsTimeElapsed(address _holder, uint256 _amount1, uint256 _amount2)
+        public
+    {
         _amount1 = bound(_amount1, 1, MAX_DEPOSIT_AMOUNT);
         _amount2 = bound(_amount2, 1, MAX_DEPOSIT_AMOUNT);
 
@@ -1128,10 +990,7 @@ contract OffChainHelpers is NVTTest {
         skip(365 days);
 
         UnlockRequest[] memory requests = new UnlockRequest[](1);
-        requests[0] = UnlockRequest({
-            index: 0,
-            amount: _amount
-        });
+        requests[0] = UnlockRequest({index: 0, amount: _amount});
         vm.prank(_holder);
         nvt.unlock(requests);
 
@@ -1142,7 +1001,11 @@ contract OffChainHelpers is NVTTest {
         assertEq(_amountAvailable, 0);
     }
 
-    function testFuzz_AfterTwoSimultaneousDepositsWhenOneHasBeenUnlocked(address _holder, uint256 _amount1, uint256 _amount2) public {
+    function testFuzz_AfterTwoSimultaneousDepositsWhenOneHasBeenUnlocked(
+        address _holder,
+        uint256 _amount1,
+        uint256 _amount2
+    ) public {
         _amount1 = bound(_amount1, 1, MAX_DEPOSIT_AMOUNT);
         _amount2 = bound(_amount2, 1, MAX_DEPOSIT_AMOUNT);
 
@@ -1152,10 +1015,7 @@ contract OffChainHelpers is NVTTest {
         skip(365 days);
 
         UnlockRequest[] memory requests = new UnlockRequest[](1);
-        requests[0] = UnlockRequest({
-            index: 0,
-            amount: _amount1
-        });
+        requests[0] = UnlockRequest({index: 0, amount: _amount1});
         vm.prank(_holder);
         nvt.unlock(requests);
 
@@ -1167,7 +1027,11 @@ contract OffChainHelpers is NVTTest {
         assertEq(_amountAvailable, _amount2);
     }
 
-    function testFuzz_AfterTwoSimultaneousDepositsWhenOneHasBeenPartiallyUnlocked(address _holder, uint256 _amount1, uint256 _amount2) public {
+    function testFuzz_AfterTwoSimultaneousDepositsWhenOneHasBeenPartiallyUnlocked(
+        address _holder,
+        uint256 _amount1,
+        uint256 _amount2
+    ) public {
         _amount1 = bound(_amount1, 1, MAX_DEPOSIT_AMOUNT);
         _amount2 = bound(_amount2, 1, MAX_DEPOSIT_AMOUNT);
 
@@ -1178,10 +1042,7 @@ contract OffChainHelpers is NVTTest {
 
         // unlock a third of the second deposit only
         UnlockRequest[] memory requests = new UnlockRequest[](1);
-        requests[0] = UnlockRequest({
-            index: 1,
-            amount: (_amount2 / 3)
-        });
+        requests[0] = UnlockRequest({index: 1, amount: (_amount2 / 3)});
         vm.prank(_holder);
         nvt.unlock(requests);
 
@@ -1197,18 +1058,11 @@ contract OffChainHelpers is NVTTest {
 
 // Testing when authorized user can or cannot lock NDAO and create vesting NVT distributions.
 contract VestLock is NVTTest {
-
-    function testFuzz_AuthorizedUserCanVestLock(
-        address _vestee,
-        uint256 _amount,
-        uint256 _period,
-        uint256 _seed
-    ) public {
+    function testFuzz_AuthorizedUserCanVestLock(address _vestee, uint256 _amount, uint256 _period, uint256 _seed)
+        public
+    {
         address _actor = getAuthorizedActor(_seed);
-        vm.assume(
-            _vestee != _actor &&
-            _vestee != address(0)
-        );
+        vm.assume(_vestee != _actor && _vestee != address(0));
         _amount = bound(_amount, 0, MAX_VESTING_AMOUNT);
         _period = bound(_period, 1, MAX_VESTING_PERIOD);
         mintNdaoAndApproveNvt(_actor, _amount);
@@ -1238,10 +1092,7 @@ contract VestLock is NVTTest {
         uint256 _period1,
         uint256 _period2
     ) public {
-        vm.assume(
-            _vestee != board &&
-            _vestee != address(0)
-        );
+        vm.assume(_vestee != board && _vestee != address(0));
         _amount1 = bound(_amount1, 0, MAX_VESTING_AMOUNT);
         _amount2 = bound(_amount2, 0, MAX_VESTING_AMOUNT);
         _period1 = bound(_period1, 1, MAX_VESTING_PERIOD);
@@ -1256,16 +1107,10 @@ contract VestLock is NVTTest {
         vm.stopPrank();
     }
 
-    function testFuzz_NonAuthorizedCannotVestLock(
-        address _nonAdmin,
-        address _vestee,
-        uint256 _amount,
-        uint256 _period
-    ) public {
-        vm.assume(
-            _nonAdmin != board &&
-            _nonAdmin != capitalCommittee
-        );
+    function testFuzz_NonAuthorizedCannotVestLock(address _nonAdmin, address _vestee, uint256 _amount, uint256 _period)
+        public
+    {
+        vm.assume(_nonAdmin != board && _nonAdmin != capitalCommittee);
 
         vm.expectRevert(Unauthorized.selector);
         vm.prank(_nonAdmin);
@@ -1275,7 +1120,6 @@ contract VestLock is NVTTest {
 
 // Testing the view helper that calculates how much vested NVT is available to the vestee to be unlocked.
 contract AvailableForVestUnlock is NVTTest {
-
     function testFuzz_AvailableForVestAfterArbitraryTime(
         address _vestee,
         uint256 _amount,
@@ -1329,10 +1173,7 @@ contract AvailableForVestUnlock is NVTTest {
         assertEq(nvt.availableForVestUnlock(_vestee, block.timestamp), 0);
     }
 
-    function testFuzz_AvailableAfterPartialWithdrawalAndMultipleTimeSpans(
-        address _vestee,
-        uint256 _amount
-    ) public {
+    function testFuzz_AvailableAfterPartialWithdrawalAndMultipleTimeSpans(address _vestee, uint256 _amount) public {
         _amount = bound(_amount, 1, MAX_VESTING_AMOUNT);
         uint256 _period = 4 * (365 days);
         mintNdaoAndVest(_vestee, _amount, _period);
@@ -1353,7 +1194,6 @@ contract AvailableForVestUnlock is NVTTest {
 
 // Testing the ability of the vestee to unlock vested NVT for NDAO.
 contract UnlockVested is NVTTest {
-
     function testFuzz_VesteeCannotUnlockAnyImmediately(address _vestee, uint256 _vestAmount, uint256 _period) public {
         _vestAmount = bound(_vestAmount, 1, MAX_VESTING_AMOUNT);
         _period = bound(_period, 1, MAX_VESTING_PERIOD);
@@ -1466,7 +1306,6 @@ contract UnlockVested is NVTTest {
 
 // Testing the ability of authorized accounts to clawback non-vested NVT from a vestee.
 contract Clawback is NVTTest {
-
     function testFuzz_ClawbackAllImmediately(address _vestee, uint256 _amount, uint256 _period, uint256 _seed) public {
         address _actor = getAuthorizedActor(_seed);
         _amount = bound(_amount, 1, MAX_VESTING_AMOUNT);
@@ -1640,10 +1479,7 @@ contract Clawback is NVTTest {
     }
 
     function testFuzz_NonAdminCannotCallClawback(address _nonAdmin, address _vestee) public {
-        vm.assume(
-            _nonAdmin != board &&
-            _nonAdmin != capitalCommittee
-        );
+        vm.assume(_nonAdmin != board && _nonAdmin != capitalCommittee);
 
         vm.prank(_nonAdmin);
         vm.expectRevert(Unauthorized.selector);

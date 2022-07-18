@@ -1,39 +1,40 @@
 # Endaoment Scripts
 
-This folder contains utility scripts that can be used to deploy and interact with the Endaoment V2 smart contracts. The instructions for running the scripts below assume you already have the `foundry` tool installed.  See the main repo `README` files for instructions on `foundry` installation.
+This folder contains utility scripts that can be used to deploy and interact with the Endaoment V2 smart contracts. The
+instructions for running the scripts below assume you already have the `foundry` tool installed. See the main repo
+`README` files for instructions on `foundry` installation.
 
 Usage overview, in 2 different shell windows run the 2 commands below:
-```
-anvil --fork-url https://eth-mainnet.alchemyapi.io/v2/3eAKRP-Mhz1XETTBl-7OuACQjDlujS4Q --fork-block-number 14843823
-```
-```
-forge script script/LocalDeploy.s.sol --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 --broadcast --fork-url http://127.0.0.1:8545
+
+```sh
+anvil --fork-url $RPC_URL --fork-block-number 14843823
 ```
 
-## Scripts
-1. LocalDeploy.s.sol
-1. Deploy.s.sol
-
-The `LocalDeploy` script is used to deploy the Endaoment "core protocol" smart contracts to a local `anvil` instance for local testing by the Endaoment front-end and API dev team. It inherits from the `Deploy` script, which is intended for general deployments.
+```sh
+forge script script/LocalDeploy.s.sol --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 --broadcast --slow --rpc-url http://127.0.0.1:8545
+```
 
 ## Configuration / Setup of the LocalDeploy script
 
 In a shell window, start a local instance of the `anvil` Ethereum node software, with the following command:
 
-```
-anvil --fork-url https://eth-mainnet.alchemyapi.io/v2/3eAKRP-Mhz1XETTBl-7OuACQjDlujS4Q --fork-block-number 14843823
+```sh
+anvil --fork-url $RPC_URL --fork-block-number 14843823
 ```
 
 Note that `--fork-url` is the current Endaoment Alchemy API paid end-point for main-net access.
 
-Note that because LocalDeploy runs on a fork of main-net, it therefore makes use of the main-net USDC contract address internally.
+Note that because LocalDeploy runs on a fork of main-net, it therefore makes use of the main-net USDC contract address
+internally.
 
-Note that `--fork-block-number` is an arbitrary recent main-net block from which `anvil` will replicate blockchain state.
+Note that `--fork-block-number` is an arbitrary recent main-net block from which `anvil` will replicate blockchain
+state.
 
 The above command will run a local blockchain node, accessible at the URL `http://127.0.0.1:8545`.
 
-The startup of `anvil` will produce output containing information about the accounts and private keys that are built into the `anvil` instance.
-Some of the output will look like this... take note of the "private keys" section, we'll be making use of that in running the LocalDeploy script.
+The startup of `anvil` will produce output containing information about the accounts and private keys that are built
+into the `anvil` instance. Some of the output will look like this... take note of the "private keys" section, we'll be
+making use of that in running the LocalDeploy script.
 
 ```
 Available Accounts
@@ -63,39 +64,83 @@ Private Keys
 (9) 0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6
 
 ```
-"Private keys" (0) is associated with "Available Accounts" (0) which will be used as the deploying EOA when the LocalDeploy script is run.
 
+"Private keys" (0) is associated with "Available Accounts" (0) which will be used as the deploying EOA when the
+LocalDeploy script is run.
 
-The LocalDeploy script will deploy the core protocol smart contracts to this node, where they can then be executed by the Endoament front-end and API via that RPC URL.
+The LocalDeploy script will deploy the core protocol smart contracts to this node, where they can then be executed by
+the Endoament front-end and API via that RPC URL.
+
+### Getting ERC20 tokens for testing
+
+Since we need to ensure our contracts work with tokens outside of ETH, we have to transfer tokens from other accounts
+over to our test accounts.
+
+We can do this by impersonating a user in anvil and then calling `transfer` in the format:
+
+```
+cast rpc anvil_impersonateAccount $REAL_PERSONS_WALLET
+cast send $TOKEN_ADDRESS --from $REAL_PERSONS_WALLET "transfer(address,uint256)(bool)" $DEV_WALLET $AMOUNT_WEI
+```
+
+For example, we can transfer DAI to the `0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266` account using the following:
+
+```
+export TOKEN_ADDRESS=0x6b175474e89094c44da98b954eedeac495271d0f
+export REAL_PERSONS_WALLET=0xaD0135AF20fa82E106607257143d0060A7eB5cBf
+export DEV_WALLET=0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266
+export AMOUNT_WEI=50000000000000000000000000
+
+cast rpc anvil_impersonateAccount $REAL_PERSONS_WALLET
+cast send $TOKEN_ADDRESS --from $REAL_PERSONS_WALLET "transfer(address,uint256)(bool)" $DEV_WALLET $AMOUNT_WEI
+```
+
+and you can check the balance of a token using:
+
+```
+cast call $TOKEN_ADDRESS "balanceOf(address)(uint256)" $DEV_WALLET
+```
+
+Here are some token addresses to make your life easier:
+
+| Name  | Address                                    |
+| ----- | ------------------------------------------ |
+| USDC: | 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48 |
+| DAI:  | 0x6b175474e89094c44da98b954eedeac495271d0f |
 
 ## Execution of the LocalDeploy script
 
-In a second shell window, the LocalDeploy script can be executed to deploy the Endaoment smart contract to the `anvil` node via the following command:
+In a second shell window, the LocalDeploy script can be executed to deploy the Endaoment smart contract to the `anvil`
+node via the following command:
+
 ```
-forge script script/LocalDeploy.s.sol --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 --broadcast --fork-url http://127.0.0.1:8545
+forge script script/LocalDeploy.s.sol --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 --broadcast --rpc-url http://127.0.0.1:8545
 ```
 
 Note that `--private-key` references the private key for account 0 of the `anvil` Ethereum node.
 
-Note that `--fork-url` points to the `anvil` node as the target for contract deployments.
+Note that `--rpc-url` points to the `anvil` node as the target for contract deployments.
 
 ## Collecting deployed contract addresses from LocalDeploy execution
 
-In order to collect the deployed contract addresses into a JSON file for use in integration testing with the Endaoment front-end and/or API, the following command can be used in the second shell window:
+In order to collect the deployed contract addresses into a JSON file for use in integration testing with the Endaoment
+front-end and/or API, the following command can be used in the second shell window:
 
 ```
-forge script script/LocalDeploy.s.sol --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 --broadcast --fork-url http://127.0.0.1:8545 --json
+forge script script/LocalDeploy.s.sol --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 --broadcast --slow --fork-url http://127.0.0.1:8545 --json
 ```
 
-Because the `forge script` outputs a JSON formatted log when supplied with the `--json` command line argument, the deployed contract names and addresses can be parsed from that JSON file for use by the Endaoment front-end and/or API.
+Because the `forge script` outputs a JSON formatted log when supplied with the `--json` command line argument, the
+deployed contract names and addresses can be parsed from that JSON file for use by the Endaoment front-end and/or API.
 
 The `forge script` command will output the name and path of the JSON file as it finishes its execution:
+
 ```
 ONCHAIN EXECUTION COMPLETE & SUCCESSFUL. Transaction receipts written to "broadcast/LocalDeploy.s.sol/1/run-latest.json"
 ```
 
-The "contractName" and "contractAddress" keys in each transaction in the array of transactions will contain the desired information. The snippet below
-illustrates this.
+The "contractName" and "contractAddress" keys in each transaction in the array of transactions will contain the desired
+information. The snippet below illustrates this.
 
 ```
 {

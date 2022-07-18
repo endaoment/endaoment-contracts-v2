@@ -1,11 +1,15 @@
-// SPDX-License-Identifier: BSD 3-Claused
+// SPDX-License-Identifier: BSD 3-Clause
 pragma solidity 0.8.13;
+
 import "./utils/DeployTest.sol";
 import "../Registry.sol";
-import { IAToken, ILendingPool } from "../interfaces/IAave.sol";
-import { ERC20 } from "solmate/tokens/ERC20.sol";
-import { SafeTransferLib } from "solmate/utils/SafeTransferLib.sol";
-import { AaveUSDCPortfolio } from "../portfolios/AaveUSDCPortfolio.sol";
+import {IAToken, ILendingPool} from "../interfaces/IAave.sol";
+import {ERC20} from "solmate/tokens/ERC20.sol";
+import {SafeTransferLib} from "solmate/utils/SafeTransferLib.sol";
+import {AaveUSDCPortfolio} from "../portfolios/AaveUSDCPortfolio.sol";
+
+error DepositAfterShutdown();
+error SyncAfterShutdown();
 
 contract AaveUSDCPortfolioTest is DeployTest {
     AaveUSDCPortfolio portfolio;
@@ -16,7 +20,9 @@ contract AaveUSDCPortfolioTest is DeployTest {
     address manager = user1;
     uint256 fundBalance = 1e27;
 
-    function setUp() public override virtual {
+    function setUp() public virtual override {
+        uint256 mainnetForkBlock = 14500000;
+        vm.createSelectFork(vm.rpcUrl("mainnet"), mainnetForkBlock);
         super.setUp();
 
         // Deploy new contracts with mainnet base token.
@@ -50,7 +56,8 @@ contract AaveUSDCPortfolioTest is DeployTest {
 contract AUPConstructor is AaveUSDCPortfolioTest {
     function testFuzz_Constructor(uint256 _cap, uint256 _depositFee, uint256 _redemptionFee) public {
         _redemptionFee = bound(_redemptionFee, 0, Math.ZOC);
-        AaveUSDCPortfolio _portfolio = new AaveUSDCPortfolio(globalTestRegistry, address(usdc), _cap, _depositFee, _redemptionFee);
+        AaveUSDCPortfolio _portfolio =
+            new AaveUSDCPortfolio(globalTestRegistry, address(usdc), _cap, _depositFee, _redemptionFee);
 
         assertEq(_portfolio.name(), "Aave USDC Portfolio Shares");
         assertEq(_portfolio.symbol(), "aUSDC-PS");
@@ -154,5 +161,38 @@ contract AUPIntegrationTest is AaveUSDCPortfolioTest {
         assertEq(_aliceNet, _aliceExpected);
         assertEq(_bobNet, _bobExpected);
         assertEq(usdc.balanceOf(address(portfolio)), 0);
+    }
+
+    function testFuzz_DepositFailDidShutdown(uint256 _amount) public {
+        // deposit something into the portfolio, otherwise the the shutdown will fail on withdrawal
+        deposit(alice, 30e6);
+
+        _amount = bound(_amount, 1, 1e7 ether);
+        bytes memory _data = hex"";
+
+        // shutdown
+        vm.prank(board);
+        portfolio.shutdown(_data);
+
+        // try to deposit
+        vm.prank(manager);
+        vm.expectRevert(DepositAfterShutdown.selector);
+        fund.portfolioDeposit(portfolio, _amount, _data);
+    }
+
+    function test_SyncFailDidShutdown() public {
+        // deposit something into the portfolio, otherwise the the shutdown will fail on withdrawal
+        deposit(alice, 30e6);
+
+        bytes memory _data = hex"";
+
+        // shutdown
+        vm.prank(board);
+        portfolio.shutdown(_data);
+
+        // try to sync
+        vm.prank(board);
+        vm.expectRevert(SyncAfterShutdown.selector);
+        portfolio.sync();
     }
 }
