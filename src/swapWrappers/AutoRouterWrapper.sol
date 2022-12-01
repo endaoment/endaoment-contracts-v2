@@ -84,6 +84,8 @@ contract AutoRouterWrapper is ISwapWrapper {
             transferEth(_recipient);
         }
 
+        uint256 _amountOut = getBalance(_tokenOut, _recipient) - _prevBalance;
+        emit WrapperSwapExecuted(_tokenIn, _tokenOut, msg.sender, _recipient, _totalAmountIn, _amountOut);
         return getBalance(_tokenOut, _recipient) - _prevBalance;
     }
 
