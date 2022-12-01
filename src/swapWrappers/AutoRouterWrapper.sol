@@ -58,6 +58,7 @@ contract AutoRouterWrapper is ISwapWrapper {
         }
         uint256 _prevBalance = getBalance(_tokenOut, _recipient);
 
+        address _originalTokenIn = _tokenIn;
         if (_isInputEth) {
             weth.deposit{value: _amount}();
             _tokenIn = address(weth);
@@ -85,7 +86,7 @@ contract AutoRouterWrapper is ISwapWrapper {
         }
 
         uint256 _amountOut = getBalance(_tokenOut, _recipient) - _prevBalance;
-        emit WrapperSwapExecuted(_tokenIn, _tokenOut, msg.sender, _recipient, _totalAmountIn, _amountOut);
+        emit WrapperSwapExecuted(_originalTokenIn, _tokenOut, msg.sender, _recipient, _totalAmountIn, _amountOut);
         return getBalance(_tokenOut, _recipient) - _prevBalance;
     }
 
