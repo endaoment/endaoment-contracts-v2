@@ -87,7 +87,8 @@ contract AutoRouterWrapper is ISwapWrapper {
 
         uint256 _amountOut = getBalance(_tokenOut, _recipient) - _prevBalance;
         emit WrapperSwapExecuted(_originalTokenIn, _tokenOut, msg.sender, _recipient, _totalAmountIn, _amountOut);
-        return getBalance(_tokenOut, _recipient) - _prevBalance;
+
+        return _amountOut;
     }
 
     function _validateData(address _tokenIn, address _tokenOut, address _recipient, bytes calldata _data)
