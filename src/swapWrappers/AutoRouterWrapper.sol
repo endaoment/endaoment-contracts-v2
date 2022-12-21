@@ -42,8 +42,6 @@ contract AutoRouterWrapper is ISwapWrapper {
         name = _name;
         swapRouter = ISwapRouter(_uniV3SwapRouter);
         weth = IWETH9(swapRouter.WETH9());
-
-        ERC20(address(weth)).safeApprove(address(swapRouter), type(uint256).max);
     }
 
     function swap(address _tokenIn, address _tokenOut, address _recipient, uint256 _amount, bytes calldata _data)
@@ -58,31 +56,19 @@ contract AutoRouterWrapper is ISwapWrapper {
         }
         uint256 _prevBalance = getBalance(_tokenOut, _recipient);
 
-        if (_isInputEth) {
-            weth.deposit{value: _amount}();
-            _tokenIn = address(weth);
-        } else {
+        if (!_isInputEth) {
             // If caller isn't sending ETH, we need to transfer in tokens...
             ERC20(_tokenIn).safeTransferFrom(msg.sender, address(this), _amount);
-
-            // But only approve if token is not weth (weth approval already set to max)
-            if (_tokenIn != address(weth)) {
-                ERC20(_tokenIn).safeApprove(address(swapRouter), 0);
-                ERC20(_tokenIn).safeApprove(address(swapRouter), _amount);
-            }
+            ERC20(_tokenIn).safeApprove(address(swapRouter), 0);
+            ERC20(_tokenIn).safeApprove(address(swapRouter), _amount);
         }
 
         uint256 _totalAmountIn = _validateData(_tokenIn, _tokenOut, _recipient, _data);
-        // totalAmountIn has been modified by the various `check...()` methods, and should now sum to _amount
+        // _totalAmountIn has been modified by the various `check...()` methods, and should now sum to _amount
         if (_totalAmountIn != _amount) revert TotalAmountMismatch();
 
-        (bool _success,) = address(swapRouter).call(_data);
+        (bool _success,) = address(swapRouter).call{value: _isInputEth ? _amount : 0}(_data);
         if (!_success) revert TxFailed();
-
-        // Unwrap WETH for ETH if needed.
-        if (_tokenOut == address(eth)) {
-            transferEth(_recipient);
-        }
 
         return getBalance(_tokenOut, _recipient) - _prevBalance;
     }
@@ -126,6 +112,8 @@ contract AutoRouterWrapper is ISwapWrapper {
                 _totalAmountIn += checkSwapExactTokensForTokens(
                     _callWithoutSelector, _tokenIn, _tokenOut, _recipient, _checkTokenIn, _checkTokenOut
                 );
+            } else if (_selector == ISwapRouter.unwrapWETH9.selector) {
+                checkUnwrapWETH9(_callWithoutSelector, _recipient);
             } else {
                 revert UnhandledFunction(_selector);
             }
@@ -160,12 +148,7 @@ contract AutoRouterWrapper is ISwapWrapper {
             bool _tokensMatch = checkTokens(_tokenOut, _tokenOutExpected);
             if (!_tokensMatch) revert TokenOutMismatch(ISwapRouter.exactInputSingle.selector);
         }
-
-        // address(2) is a flag for identifying address(this).
-        // See https://github.com/Uniswap/swap-router-contracts/blob/9dc4a9cce101be984e148e1af6fe605ebcfa658a/contracts/libraries/Constants.sol#L14
-        if (_recipient != _recipientExpected && _recipient != address(2)) {
-            revert RecipientMismatch(ISwapRouter.exactInputSingle.selector);
-        }
+        checkRecipient(_recipient, _recipientExpected, ISwapRouter.exactInputSingle.selector);
 
         return _amountIn;
     }
@@ -197,12 +180,7 @@ contract AutoRouterWrapper is ISwapWrapper {
             bool _tokensMatch = checkTokens(_tokenB, _tokenOutExpected);
             if (!_tokensMatch) revert TokenOutMismatch(ISwapRouter.exactInput.selector);
         }
-
-        // address(2) is a flag for identifying address(this).
-        // See https://github.com/Uniswap/swap-router-contracts/blob/9dc4a9cce101be984e148e1af6fe605ebcfa658a/contracts/libraries/Constants.sol#L14
-        if (_recipient != _recipientExpected && _recipient != address(2)) {
-            revert RecipientMismatch(ISwapRouter.exactInput.selector);
-        }
+        checkRecipient(_recipient, _recipientExpected, ISwapRouter.exactInput.selector);
 
         return _amountIn;
     }
@@ -214,7 +192,7 @@ contract AutoRouterWrapper is ISwapWrapper {
         if (!_tokensMatch) {
             revert TokenOutMismatch(ISwapRouter.sweepToken.selector);
         }
-        if (_recipient != _recipientExpected) revert RecipientMismatch(ISwapRouter.sweepToken.selector);
+        checkRecipient(_recipient, _recipientExpected, ISwapRouter.sweepToken.selector);
     }
 
     function checkSwapExactTokensForTokens(
@@ -230,7 +208,7 @@ contract AutoRouterWrapper is ISwapWrapper {
             /*uint256 amountOutMin*/
             ,
             address[] memory _path,
-            address _to
+            address _recipient
         ) = abi.decode(_data, (uint256, uint256, address[], address));
 
         if (_checkTokenIn) {
@@ -241,19 +219,26 @@ contract AutoRouterWrapper is ISwapWrapper {
             bool _tokensMatch = checkTokens(_path[_path.length - 1], _tokenOutExpected);
             if (!_tokensMatch) revert TokenOutMismatch(ISwapRouter.swapExactTokensForTokens.selector);
         }
-
-        // address(2) is a flag for identifying address(this).
-        // See https://github.com/Uniswap/swap-router-contracts/blob/9dc4a9cce101be984e148e1af6fe605ebcfa658a/contracts/libraries/Constants.sol#L14
-        if (_to != _recipientExpected && _to != address(2)) {
-            revert RecipientMismatch(ISwapRouter.swapExactTokensForTokens.selector);
-        }
+        checkRecipient(_recipient, _recipientExpected, ISwapRouter.swapExactTokensForTokens.selector);
 
         return _amountIn;
     }
 
-    function transferEth(address _recipient) internal {
-        weth.withdraw(weth.balanceOf(address(this)));
-        payable(_recipient).transfer(address(this).balance);
+    function checkUnwrapWETH9(bytes memory _data, address _recipientExpected) internal pure {
+        ( /*uint256 amountOutMin*/ , address _recipient) = abi.decode(_data, (uint256, address));
+        checkRecipient(_recipient, _recipientExpected, ISwapRouter.unwrapWETH9.selector);
+    }
+
+    function checkRecipient(address _recipient, address _recipientExpected, bytes4 _selector) internal pure {
+        if (_selector == ISwapRouter.sweepToken.selector || _selector == ISwapRouter.unwrapWETH9.selector) {
+            if (_recipient != _recipientExpected) revert RecipientMismatch(_selector);
+        } else {
+            // address(2) is a flag for identifying address(this).
+            // See https://github.com/Uniswap/swap-router-contracts/blob/9dc4a9cce101be984e148e1af6fe605ebcfa658a/contracts/libraries/Constants.sol#L14
+            if (_recipient != _recipientExpected && _recipient != address(2)) {
+                revert RecipientMismatch(_selector);
+            }
+        }
     }
 
     function getBalance(address _tokenOut, address _recipient) internal view returns (uint256) {
