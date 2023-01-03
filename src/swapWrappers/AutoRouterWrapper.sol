@@ -70,7 +70,9 @@ contract AutoRouterWrapper is ISwapWrapper {
         (bool _success,) = address(swapRouter).call{value: _isInputEth ? _amount : 0}(_data);
         if (!_success) revert TxFailed();
 
-        return getBalance(_tokenOut, _recipient) - _prevBalance;
+        uint256 _amountOut = getBalance(_tokenOut, _recipient) - _prevBalance;
+        emit WrapperSwapExecuted(_tokenIn, _tokenOut, msg.sender, _recipient, _totalAmountIn, _amountOut);
+        return _amountOut;
     }
 
     function _validateData(address _tokenIn, address _tokenOut, address _recipient, bytes calldata _data)
