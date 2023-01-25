@@ -37,7 +37,7 @@ interface ISwapRouter is IUniswapV3SwapCallback {
 
     function wrapETH(uint256 value) external payable;
 
-    function unwrapWETH9(uint256 amountMinimum) external payable;
+    function unwrapWETH9(uint256 amountMinimum, address recipient) external payable;
 
     function WETH9() external view returns (address payable);
 
