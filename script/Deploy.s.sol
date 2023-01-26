@@ -61,13 +61,21 @@ contract Deploy is Script, RolesAndCapabilitiesControl {
         console2.log("Local core protocol deployment SUCCESS");
     }
 
-    function deployAutoRouterWrapper(address _uniSwapRouter02) public {
+    function _deployAutoRouterWrapper(address _uniSwapRouter02) private returns (ISwapWrapper) {
         vm.broadcast();
-        ISwapWrapper wrapper = new AutoRouterWrapper("Uniswap AutoRouter Wrapper", _uniSwapRouter02);
+        return new AutoRouterWrapper("Uniswap AutoRouter Wrapper", _uniSwapRouter02);
+    }
+
+    function deployAutoRouterWrapper(address _uniSwapRouter02) public {
+        ISwapWrapper wrapper = _deployAutoRouterWrapper(_uniSwapRouter02);
 
         vm.broadcast();
         registry.setSwapWrapperStatus(wrapper, true);
         console2.log("AutoRouter wrapper", address(wrapper));
+    }
+
+    function deployStandaloneAutoRouterWrapper(address _uniSwapRouter02) public {
+        _deployAutoRouterWrapper(_uniSwapRouter02);
     }
 
     function deployUniV3Wrapper(address _uniV3SwapRouter) public {
