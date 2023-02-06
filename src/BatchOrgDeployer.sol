@@ -14,11 +14,7 @@ contract BatchOrgDeployer {
     OrgFundFactory public immutable orgFundFactory;
 
     /// @notice Emitted when a batch is deployed
-    event EntityBatchDeployed(
-        address indexed caller,
-        uint8 indexed entityType,
-        uint256 batchSize
-    );
+    event EntityBatchDeployed(address indexed caller, uint8 indexed entityType, uint256 batchSize);
 
     constructor(OrgFundFactory _orgFundFactory) {
         orgFundFactory = _orgFundFactory;

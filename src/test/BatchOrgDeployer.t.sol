@@ -7,11 +7,7 @@ import {OrgFundFactory} from "../OrgFundFactory.sol";
 import {BatchOrgDeployer} from "../BatchOrgDeployer.sol";
 
 contract BatchOrgDeployerTest is DeployTest {
-    event EntityBatchDeployed(
-        address indexed caller,
-        uint8 indexed entityType,
-        uint256 batchSize
-    );
+    event EntityBatchDeployed(address indexed caller, uint8 indexed entityType, uint256 batchSize);
 
     BatchOrgDeployer batchOrgDeployer;
 
@@ -23,10 +19,7 @@ contract BatchOrgDeployerTest is DeployTest {
 
 contract BatchOrgDeployerConstructor is BatchOrgDeployerTest {
     function test_BatchOrgDeployerConstructor() public {
-        assertEq(
-            address(batchOrgDeployer.orgFundFactory()),
-            address(orgFundFactory)
-        );
+        assertEq(address(batchOrgDeployer.orgFundFactory()), address(orgFundFactory));
     }
 }
 

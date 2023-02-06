@@ -11,8 +11,7 @@ import {ScriptHelpers} from "./ScriptHelpers.s.sol";
  * @notice BatchOrgDeploy script - manages the deployment of a batch of Orgs, using the `BatchOrgDeploy` contract
  */
 contract BatchOrgDeploy is Script, ScriptHelpers {
-    address constant BATCH_ORG_DEPLOYER_ADDRESS =
-        0x5012CB8A192DB05260673a795B18aa5329D3D4c2;
+    address constant BATCH_ORG_DEPLOYER_ADDRESS = 0x5012CB8A192DB05260673a795B18aa5329D3D4c2;
 
     uint256 constant BATCH_SIZE = 25;
 
@@ -28,9 +27,7 @@ contract BatchOrgDeploy is Script, ScriptHelpers {
      * @dev TODO: when forge scripting supports JSON parsing the input file can become a JSON array of EIN/Org Ids.
      */
     function batchDeployOrgs(string memory _inputFile) public {
-        BatchOrgDeployer _batchOrgDeployer = BatchOrgDeployer(
-            BATCH_ORG_DEPLOYER_ADDRESS
-        );
+        BatchOrgDeployer _batchOrgDeployer = BatchOrgDeployer(BATCH_ORG_DEPLOYER_ADDRESS);
 
         parseInputFile(_inputFile);
 
@@ -39,10 +36,7 @@ contract BatchOrgDeploy is Script, ScriptHelpers {
 
             currentBatch.push(_ein);
 
-            if (
-                currentBatch.length == BATCH_SIZE ||
-                i == orgsToDeploy.length - 1
-            ) {
+            if (currentBatch.length == BATCH_SIZE || i == orgsToDeploy.length - 1) {
                 vm.broadcast();
                 _batchOrgDeployer.batchDeploy(currentBatch);
                 delete currentBatch;
