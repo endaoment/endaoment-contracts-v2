@@ -12,3 +12,11 @@ interface ILendingPool {
     function deposit(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external;
     function withdraw(address asset, uint256 amount, address to) external;
 }
+
+// Aave V3 interfaces. We can use the same IAToken interface, but need a new pool interface since
+// the `deposit` method is deprecated (it still exists and is an alias for `supply`).
+interface IV3Pool {
+    // The referral program is currently inactive. so pass 0 as the referralCode.
+    function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external;
+    function withdraw(address asset, uint256 amount, address to) external;
+}
