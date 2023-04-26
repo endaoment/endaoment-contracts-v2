@@ -126,7 +126,7 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         vm.expectEmit(true, true, true, true);
         emit EntityDonationReceived(
             _donor, address(entity), address(_baseToken), _donationAmount, _donationAmount, _amountFee
-            );
+        );
         deal(address(_baseToken), _donor, _donationAmount);
         vm.prank(_donor);
         entity.donate(_donationAmount);
@@ -162,7 +162,7 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         vm.expectEmit(true, true, true, true);
         emit EntityDonationReceived(
             _donor, address(entity), address(_baseToken), _donationAmount, _donationAmount, _amountFee
-            );
+        );
         deal(address(_baseToken), _donor, _donationAmount);
         vm.prank(_donor);
         entity.donateWithOverrides(_donationAmount);
@@ -188,7 +188,7 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         vm.expectEmit(true, true, true, true);
         emit EntityDonationReceived(
             _donor, address(entity), address(_baseToken), _donationAmount, _donationAmount, _amountFee
-            );
+        );
         vm.prank(_donor);
         entity.donateWithAdminOverrides(_donationAmount, uint32(_feePercent));
         assertEq(_baseToken.balanceOf(_donor), 0);
@@ -964,7 +964,7 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         vm.expectEmit(true, true, true, true);
         emit EntityDonationReceived(
             _donor, address(entity), address(testToken1), _donationAmount, mockSwapWrapper.amountOut(), _expectedFee
-            );
+        );
         vm.prank(_donor);
         entity.swapAndDonate(mockSwapWrapper, address(testToken1), _donationAmount, "");
 
@@ -1009,7 +1009,7 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
             _donationAmount,
             mockSwapWrapper.amountOut(),
             _expectedFee
-            );
+        );
         vm.prank(_donor);
         entity.swapAndDonate{value: _donationAmount}(mockSwapWrapper, entity.ETH_PLACEHOLDER(), _donationAmount, "");
 
@@ -1087,7 +1087,7 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
         vm.expectEmit(true, true, true, true);
         emit EntityDonationReceived(
             _donor, address(entity), address(testToken1), _donationAmount, mockSwapWrapper.amountOut(), _expectedFee
-            );
+        );
         vm.prank(_donor);
         entity.swapAndDonateWithOverrides(mockSwapWrapper, address(testToken1), _donationAmount, "");
 
@@ -1135,7 +1135,7 @@ abstract contract EntityTokenTransactionTest is EntityHarness {
             _donationAmount,
             mockSwapWrapper.amountOut(),
             _expectedFee
-            );
+        );
         vm.prank(_donor);
         entity.swapAndDonateWithOverrides{value: _donationAmount}(
             mockSwapWrapper,
