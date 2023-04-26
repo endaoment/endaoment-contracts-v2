@@ -16,18 +16,24 @@ contract AaveV3USDCPortfolio is Portfolio {
     using SafeTransferLib for ERC20;
     using Math for uint256;
 
+    /// @notice Address of the Aave V3 pool.
     IV3Pool public constant aavePool = IV3Pool(0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2);
-    IAToken public constant ausdc = IAToken(0x98C23E9d8f34FEFb1B7BD6a91B7FF122F4e16F5c);
-    uint16 internal constant referralCode = 0; // Referral program is currently inactive.
 
+    /// @notice Address of the Aave V3 USDC token.
+    IAToken public constant ausdc = IAToken(0x98C23E9d8f34FEFb1B7BD6a91B7FF122F4e16F5c);
+
+    /// @dev Referral program is currently inactive, so this is set to 0.
+    uint16 internal constant referralCode = 0;
+
+    /// @dev Thrown when there's a mismatch between constructor arguments and the underlying asset.
     error AssetMismatch();
 
     /**
      * @param _registry Endaoment registry.
      * @param _asset Underlying ERC20 token for portfolio (this should match the registry's base token, i.e. USDC).
      * @param _cap Amount of baseToken that this portfolio's asset balance should not exceed.
-     * @param _depositFee TODO
-     * @param _redemptionFee Percentage fee as ZOC that should go to treasury on redemption. (100 = 1%).
+     * @param _depositFee Percentage fee as ZOC that should go to treasury on deposit. (10,000 = 1%).
+     * @param _redemptionFee Percentage fee as ZOC that should go to treasury on redemption. (10,000 = 1%).
      */
     constructor(Registry _registry, address _asset, uint256 _cap, uint256 _depositFee, uint256 _redemptionFee)
         Portfolio(_registry, _asset, "Aave V3 USDC Portfolio Shares", "aEthUSDC-PS", _cap, _depositFee, _redemptionFee)
@@ -60,9 +66,9 @@ contract AaveV3USDCPortfolio is Portfolio {
 
     /**
      * @inheritdoc Portfolio
-     * @dev Rounding down in both of these favors the portfolio, so the user gets slightly less and the portfolio gets slightly more,
-     * that way it prevents a situation where the user is owed x but the vault only has x - epsilon, where epsilon is some tiny number
-     * due to rounding error.
+     * @dev Rounding down favors the portfolio, so the user gets slightly less and the portfolio gets slightly more,
+     * that way it prevents a situation where the user is owed x but the vault only has x - epsilon, where epsilon is
+     * some tiny number due to rounding error.
      */
     function convertToShares(uint256 _assets) public view override returns (uint256) {
         uint256 _supply = totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
@@ -71,9 +77,9 @@ contract AaveV3USDCPortfolio is Portfolio {
 
     /**
      * @inheritdoc Portfolio
-     * @dev Rounding down in both of these favors the portfolio, so the user gets slightly less and the portfolio gets slightly more,
-     * that way it prevents a situation where the user is owed x but the vault only has x - epsilon, where epsilon is some tiny number
-     * due to rounding error.
+     * @dev Rounding down favors the portfolio, so the user gets slightly less and the portfolio gets slightly more,
+     * that way it prevents a situation where the user is owed x but the vault only has x - epsilon, where epsilon is
+     * some tiny number due to rounding error.
      */
     function convertToAssets(uint256 _shares) public view override returns (uint256) {
         uint256 _supply = totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
@@ -81,9 +87,9 @@ contract AaveV3USDCPortfolio is Portfolio {
     }
 
     /**
-     * @dev Rounding down in both of these favors the portfolio, so the user gets slightly less and the portfolio gets slightly more,
-     * that way it prevents a situation where the user is owed x but the vault only has x - epsilon, where epsilon is some tiny number
-     * due to rounding error.
+     * @dev Rounding down favors the portfolio, so the user gets slightly less and the portfolio gets slightly more,
+     * that way it prevents a situation where the user is owed x but the vault only has x - epsilon, where epsilon is
+     * some tiny number due to rounding error.
      */
     function convertToAssetsShutdown(uint256 _shares) public view returns (uint256) {
         uint256 _supply = totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.

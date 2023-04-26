@@ -10,23 +10,25 @@ import {Math} from "../lib/Math.sol";
 import {ERC20} from "solmate/tokens/ERC20.sol";
 import {SafeTransferLib} from "solmate/utils/SafeTransferLib.sol";
 
-error SyncAfterShutdown();
-
 contract CompoundV3USDCPortfolio is Portfolio {
     using SafeTransferLib for ERC20;
     using Math for uint256;
 
+    /// @notice Address of the Compound III (Comet) USDC market/token.
     IComet public constant cusdc = IComet(0xc3d688B66703497DAA19211EEdff47f25384cdc3);
 
+    /// @dev Thrown when there's a mismatch between constructor arguments and the underlying asset.
     error AssetMismatch();
-    error CompoundError(uint256 errorCode);
+
+    /// @dev Thrown when the `sync` method is called after shutdown.
+    error SyncAfterShutdown();
 
     /**
      * @param _registry Endaoment registry.
      * @param _asset Underlying ERC20 asset token for portfolio.
      * @param _cap Amount of baseToken that this portfolio's asset balance should not exceed.
-     * @param _depositFee TODO
-     * @param _redemptionFee Percentage fee as ZOC that should go to treasury on redemption. (100 = 1%).
+     * @param _depositFee Percentage fee as ZOC that should go to treasury on deposit. (10,000 = 1%).
+     * @param _redemptionFee Percentage fee as ZOC that should go to treasury on redemption. (10,000 = 1%).
      */
     constructor(Registry _registry, address _asset, uint256 _cap, uint256 _depositFee, uint256 _redemptionFee)
         Portfolio(_registry, _asset, "Compound III USDC Portfolio Shares", "cUSDCv3-PS", _cap, _depositFee, _redemptionFee)
@@ -59,9 +61,9 @@ contract CompoundV3USDCPortfolio is Portfolio {
 
     /**
      * @inheritdoc Portfolio
-     * @dev Rounding down in both of these favors the portfolio, so the user gets slightly less and the portfolio gets slightly more,
-     * that way it prevents a situation where the user is owed x but the vault only has x - epsilon, where epsilon is some tiny number
-     * due to rounding error.
+     * @dev Rounding down favors the portfolio, so the user gets slightly less and the portfolio gets slightly more,
+     * that way it prevents a situation where the user is owed x but the vault only has x - epsilon, where epsilon is
+     * some tiny number due to rounding error.
      */
     function convertToShares(uint256 _assets) public view override returns (uint256) {
         uint256 _supply = totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
@@ -70,9 +72,9 @@ contract CompoundV3USDCPortfolio is Portfolio {
 
     /**
      * @inheritdoc Portfolio
-     * @dev Rounding down in both of these favors the portfolio, so the user gets slightly less and the portfolio gets slightly more,
-     * that way it prevents a situation where the user is owed x but the vault only has x - epsilon, where epsilon is some tiny number
-     * due to rounding error.
+     * @dev Rounding down favors the portfolio, so the user gets slightly less and the portfolio gets slightly more,
+     * that way it prevents a situation where the user is owed x but the vault only has x - epsilon, where epsilon is
+     * some tiny number due to rounding error.
      */
     function convertToAssets(uint256 _shares) public view override returns (uint256) {
         uint256 _supply = totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
@@ -80,9 +82,9 @@ contract CompoundV3USDCPortfolio is Portfolio {
     }
 
     /**
-     * @dev Rounding down in both of these favors the portfolio, so the user gets slightly less and the portfolio gets slightly more,
-     * that way it prevents a situation where the user is owed x but the vault only has x - epsilon, where epsilon is some tiny number
-     * due to rounding error.
+     * @dev Rounding down favors the portfolio, so the user gets slightly less and the portfolio gets slightly more,
+     * that way it prevents a situation where the user is owed x but the vault only has x - epsilon, where epsilon is
+     * some tiny number due to rounding error.
      */
     function convertToAssetsShutdown(uint256 _shares) public view returns (uint256) {
         uint256 _supply = totalSupply; // Saves an extra SLOAD if totalSupply is non-zero.
