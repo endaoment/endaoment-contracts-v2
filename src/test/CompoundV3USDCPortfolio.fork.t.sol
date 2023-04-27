@@ -57,7 +57,7 @@ contract CompoundV3USDCPortfolioTest is DeployTest {
     }
 }
 
-contract CUPConstructor is CompoundV3USDCPortfolioTest {
+contract CUPV3Constructor is CompoundV3USDCPortfolioTest {
     function testFuzz_Constructor(uint256 _cap, uint256 _depositFee, uint256 _redemptionFee) public {
         _redemptionFee = bound(_redemptionFee, 0, Math.ZOC);
         CompoundV3USDCPortfolio _portfolio =
@@ -75,7 +75,7 @@ contract CUPConstructor is CompoundV3USDCPortfolioTest {
     }
 }
 
-contract CUPIntegrationTest is CompoundV3USDCPortfolioTest {
+contract CUPV3IntegrationTest is CompoundV3USDCPortfolioTest {
     using stdStorage for StdStorage;
 
     address alice = address(0xaffab1e);
@@ -118,8 +118,11 @@ contract CUPIntegrationTest is CompoundV3USDCPortfolioTest {
         assertEq(portfolio.totalAssets(), _aliceShares - 1); // -1 again from rounding error.
 
         // 2. Endaoment takes 5M fees, Alice now can redeem 25M
+        address _treasury = portfolio.registry().treasury();
+        assertEq(usdc.balanceOf(_treasury), 0);
         vm.prank(board);
         portfolio.takeFees(5e6);
+        assertEq(usdc.balanceOf(_treasury), 5e6);
 
         assertEq(portfolio.convertToAssets(portfolio.balanceOf(alice)), 25e6 - 2); // -2 from rounding error.
         assertEq(portfolio.totalAssets(), 25e6 - 2); // -2 from rounding error.
