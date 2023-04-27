@@ -28,6 +28,9 @@ contract AaveV3USDCPortfolio is Portfolio {
     /// @dev Thrown when there's a mismatch between constructor arguments and the underlying asset.
     error AssetMismatch();
 
+    /// @dev Thrown when a slippage parameter cannot be met on deposit or redeem.
+    error Slippage();
+
     /**
      * @param _registry Endaoment registry.
      * @param _asset Underlying ERC20 token for portfolio (this should match the registry's base token, i.e. USDC).
@@ -101,7 +104,7 @@ contract AaveV3USDCPortfolio is Portfolio {
      * @dev Deposit the specified number of base token assets, subtract a fee, and deposit into Aave. The `_data`
      * parameter is unused.
      */
-    function deposit(uint256 _amountBaseToken, bytes calldata /* _data */ ) external override returns (uint256) {
+    function deposit(uint256 _amountBaseToken, bytes memory /* _data */ ) public override returns (uint256) {
         if (didShutdown) revert DepositAfterShutdown();
         if (!_isEntity(Entity(payable(msg.sender)))) revert NotEntity();
         (uint256 _amountNet, uint256 _amountFee) = _calculateFee(_amountBaseToken, depositFee);
@@ -120,12 +123,22 @@ contract AaveV3USDCPortfolio is Portfolio {
     }
 
     /**
+     * @notice Exchange `_amountBaseToken` for some amount of Portfolio shares, reverting if the amount of shares
+     * received is less than `_minSharesOut`.
+     */
+    function deposit(uint256 _amountBaseToken, uint256 _minSharesOut) public returns (uint256) {
+        uint256 _shares = deposit(_amountBaseToken, "");
+        if (_shares < _minSharesOut) revert Slippage();
+        return _shares;
+    }
+
+    /**
      * @inheritdoc Portfolio
      * @dev Redeem the specified number of shares to get back the underlying base token assets, which are
      * withdrawn from Aave. If the utilization of the Aave market is too high, there may be insufficient
      * funds to redeem and this method will revert. The `_data` parameter is unused.
      */
-    function redeem(uint256 _amountShares, bytes calldata /* _data */ ) external override returns (uint256) {
+    function redeem(uint256 _amountShares, bytes memory /* _data */ ) public override returns (uint256) {
         if (didShutdown) return _redeemShutdown(_amountShares);
         uint256 _assets = convertToAssets(_amountShares);
         if (_assets == 0) revert RoundsToZero();
@@ -138,6 +151,16 @@ contract AaveV3USDCPortfolio is Portfolio {
         ERC20(asset).safeTransfer(msg.sender, _amountNet);
         emit Redeem(msg.sender, msg.sender, _amountNet, _amountShares, _amountNet, _amountFee);
         return _amountNet;
+    }
+
+    /**
+     * @notice Exchange `_amountShares` for some amount of baseToken, reverting if the amount of baseToken
+     * received is less than `_minBaseTokenOut`.
+     */
+    function redeem(uint256 _amountShares, uint256 _minBaseTokenOut) external returns (uint256) {
+        uint256 _baseTokenOut = redeem(_amountShares, "");
+        if (_baseTokenOut < _minBaseTokenOut) revert Slippage();
+        return _baseTokenOut;
     }
 
     /**
