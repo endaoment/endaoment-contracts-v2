@@ -98,13 +98,13 @@ contract CUPV3IntegrationTest is CompoundV3USDCPortfolioTest {
 
     function deposit(address _who, uint256 _usdcAmount) public returns (uint256) {
         vm.prank(_who);
-        return portfolio.deposit(_usdcAmount, hex"");
+        return portfolio.deposit(_usdcAmount, abi.encode(0));
     }
 
     function redeem(address _who) public returns (uint256) {
         uint256 _shares = portfolio.balanceOf(_who);
         vm.prank(_who);
-        return portfolio.redeem(_shares, hex"");
+        return portfolio.redeem(_shares, abi.encode(0));
     }
 
     function test_Integration() public {
@@ -166,6 +166,20 @@ contract CUPV3IntegrationTest is CompoundV3USDCPortfolioTest {
         assertEq(_aliceNet, _aliceExpected);
         assertEq(_bobNet, _bobExpected);
         assertEq(usdc.balanceOf(address(portfolio)), 0);
+    }
+
+    function test_RevertIf_DepositSlippageTooHigh() public {
+        vm.prank(alice);
+        vm.expectRevert(CompoundV3USDCPortfolio.Slippage.selector);
+        portfolio.deposit(30e6, abi.encode(31e6));
+    }
+
+    function test_RevertIf_RedeemSlippageTooHigh() public {
+        uint256 _shares = deposit(alice, 30e6);
+
+        vm.prank(alice);
+        vm.expectRevert(CompoundV3USDCPortfolio.Slippage.selector);
+        portfolio.redeem(_shares, abi.encode(31e6));
     }
 
     function testFuzz_DepositFailDidShutdown(uint256 _amount) public {

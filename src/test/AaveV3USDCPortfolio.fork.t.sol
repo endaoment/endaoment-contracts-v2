@@ -94,13 +94,13 @@ contract AUPV3IntegrationTest is AaveV3USDCPortfolioTest {
 
     function deposit(address _who, uint256 _usdcAmount) public returns (uint256) {
         vm.prank(_who);
-        return portfolio.deposit(_usdcAmount, 0);
+        return portfolio.deposit(_usdcAmount, abi.encode(0));
     }
 
     function redeem(address _who) public returns (uint256) {
         uint256 _shares = portfolio.balanceOf(_who);
         vm.prank(_who);
-        return portfolio.redeem(_shares, 0);
+        return portfolio.redeem(_shares, abi.encode(0));
     }
 
     function test_Integration() public {
@@ -167,7 +167,7 @@ contract AUPV3IntegrationTest is AaveV3USDCPortfolioTest {
     function test_RevertIf_DepositSlippageTooHigh() public {
         vm.prank(alice);
         vm.expectRevert(AaveV3USDCPortfolio.Slippage.selector);
-        portfolio.deposit(30e6, 31e6);
+        portfolio.deposit(30e6, abi.encode(31e6));
     }
 
     function test_RevertIf_RedeemSlippageTooHigh() public {
@@ -175,7 +175,7 @@ contract AUPV3IntegrationTest is AaveV3USDCPortfolioTest {
 
         vm.prank(alice);
         vm.expectRevert(AaveV3USDCPortfolio.Slippage.selector);
-        portfolio.redeem(_shares, 31e6);
+        portfolio.redeem(_shares, abi.encode(31e6));
     }
 
     function testFuzz_DepositFailDidShutdown(uint256 _amount) public {
